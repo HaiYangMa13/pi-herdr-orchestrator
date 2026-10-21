@@ -33,7 +33,7 @@ import {
 } from "./src/store.ts";
 import { createJev, type Jev } from "./src/jev.ts";
 import { loadConfig } from "./src/config.ts";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
 import { FleetView, type Row } from "./src/fleet-view.ts";
@@ -143,7 +143,7 @@ export default function (pi: ExtensionAPI) {
 					"Run `herdr integration install pi`, or set PI_HERDR_INTEGRATION to its path.",
 			);
 		}
-		args.push("--no-extensions", "--no-skills", "--extension", integration, "--extension", fileURLToPath(new URL("./child-ui.ts", import.meta.url)), "--herdr-parent", sessionId, "--herdr-label", label, "--herdr-role", def.name, "--approve", "--name", `SUB · ${label} · ${def.name}`, "--session-id", piSessionId);
+		args.push("--no-extensions", "--no-skills", "--extension", integration, "--extension", fileURLToPath(new URL("./child-ui.ts", import.meta.url)), "--herdr-parent", sessionId, "--herdr-label", label, "--herdr-role", def.name, "--approve", "--name", `SUB · ${label}`, "--session-id", piSessionId);
 		return args;
 	}
 
@@ -446,7 +446,7 @@ export default function (pi: ExtensionAPI) {
 
 			try {
 				await h.start(herdrName, paneId, piArgsFor(def, label, meta.piSessionId));
-				await h.renamePane(paneId, `SUB · ${label} · ${def.name} · parent ${sessionId.slice(0,8)}`).catch(() => undefined);
+				await h.renamePane(paneId, `SUB · ${label}`).catch(() => undefined);
 				await writeMeta(sessionId, label, { ...meta, state: "running" });
 				await h.prompt(herdrName, contractHeader(paths, def), 90_000);
 				await logLine(sessionId, label, "prompted");
@@ -652,13 +652,12 @@ export default function (pi: ExtensionAPI) {
 		shuttingDown = false;
 		bind(ctx);
 		if (ctx.hasUI) {
-			const title = `MAIN · ${basename(ctx.cwd)} · ${ctx.model?.id ?? 'Pi'} · ${sessionId.slice(0,8)}`;
-			ctx.ui.setTitle(title);
+			ctx.ui.setTitle("MAIN");
 			try {
 				const parent = await bind(ctx).h.sessionPane(sessionId);
 				if (parent) {
-					await bind(ctx).h.renamePane(parent.pane_id,title);
-					await bind(ctx).h.renameTab(parent.tab_id,`MAIN · ${basename(ctx.cwd)}`);
+					await bind(ctx).h.renamePane(parent.pane_id, "MAIN");
+					await bind(ctx).h.renameTab(parent.tab_id, "MAIN");
 				}
 			} catch (error: any) { ctx.ui.notify(`窗口标识未更新: ${error?.message ?? error}`,'warning'); }
 		}

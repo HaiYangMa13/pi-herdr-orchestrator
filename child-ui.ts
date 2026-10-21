@@ -28,7 +28,7 @@ export default function childUI(pi: ExtensionAPI) {
 
 	pi.on('session_start', async (_event, ctx) => {
 		if (!ctx.hasUI) return;
-		const title = `SUB · ${flag('herdr-label')} · ${flag('herdr-role')} · parent ${flag('herdr-parent').slice(0, 8)}`;
+		const title = `SUB · ${flag('herdr-label')}`;
 		ctx.ui.setTitle(title);
 	});
 }

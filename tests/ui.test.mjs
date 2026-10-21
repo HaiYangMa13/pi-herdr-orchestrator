@@ -59,3 +59,25 @@ test('agent set merges user dir over packaged defaults without dropping fields',
  assert.equal(byName.scout.body,'user body');
  assert.equal(byName.custom.model,'m/user');
 });
+test('shared tab grows into a grid instead of slivers',async()=>{
+ const {chooseSplitDirection}=await j.import('../src/herdr.ts');
+ assert.equal(chooseSplitDirection(153,52),'right');
+ assert.equal(chooseSplitDirection(77,52),'down');
+ assert.equal(chooseSplitDirection(52,40),'down');
+ assert.equal(chooseSplitDirection(200,60),'right');
+
+ const calls=[];
+ const h=createHerdr(async(_cmd,args)=>{calls.push(args);
+  const reply=(result)=>({code:0,stderr:'',stdout:JSON.stringify({result})});
+  if(args[0]==='pane'&&args[1]==='list')return reply({panes:[{pane_id:'p1',tab_id:'t1',workspace_id:'w1',agent_session:{value:'/s/x_abc.jsonl'}},{pane_id:'p2',tab_id:'t1',workspace_id:'w1'}]});
+  if(args[0]==='tab'&&args[1]==='list')return reply({tabs:[{tab_id:'t1',workspace_id:'w1',label:'AGENTS · abc'}]});
+  if(args[0]==='pane'&&args[1]==='layout')return reply({layout:{panes:[{pane_id:'p1',rect:{x:0,y:0,width:77,height:52}},{pane_id:'p2',rect:{x:77,y:0,width:76,height:52}}]}});
+  if(args[0]==='pane'&&args[1]==='split')return reply({pane:{pane_id:'p3'}});
+  throw new Error('unexpected '+args.join(' '));
+ });
+ const alloc=await h.allocateSessionPane('/tmp','abc');
+ assert.equal(alloc.paneId,'p3');
+ const split=calls.find(a=>a[0]==='pane'&&a[1]==='split');
+ assert.ok(split.includes('down'),split.join(' '));
+ assert.equal(split[split.indexOf('--pane')+1],'p1');
+});

@@ -34,6 +34,16 @@ function pickJson(text: string): any {
 	}
 }
 
+/**
+ * Split axis for a pane of this size: keep splitting right while the pane is
+ * clearly wider than tall, otherwise split down. This grows a shared tab into a
+ * balanced grid (1 wide -> 2 wide -> 2x2 -> 2x3) instead of a row of slivers.
+ */
+export function chooseSplitDirection(width: number, height: number): "right" | "down" {
+	if (!(width > 0) || !(height > 0)) return "right";
+	return width > height * 1.6 ? "right" : "down";
+}
+
 export function createHerdr(exec: ExecFn) {
 	let allocationQueue: Promise<unknown> = Promise.resolve();
 	async function call(args: string[], timeoutMs = 30_000, signal?: AbortSignal) {
@@ -84,6 +94,28 @@ export function createHerdr(exec: ExecFn) {
 		}
 	}
 
+	/**
+	 * Choose which pane to split and along which axis so a shared tab grows into a
+	 * balanced grid instead of a row of slivers: always split the largest pane,
+	 * and split right only while it is clearly wider than tall.
+	 */
+	async function gridSplitTarget(anchorPaneId: string): Promise<{ paneId: string; direction: "right" | "down" }> {
+		const fallback = { paneId: anchorPaneId, direction: "right" as const };
+		let panes: any[] = [];
+		try {
+			const { json } = await call(["pane", "layout", "--pane", anchorPaneId]);
+			panes = json?.result?.layout?.panes ?? [];
+		} catch {
+			return fallback;
+		}
+		const sized = panes
+			.filter((p) => p?.pane_id && Number(p?.rect?.width) > 0 && Number(p?.rect?.height) > 0)
+			.map((p) => ({ paneId: String(p.pane_id), width: Number(p.rect.width), height: Number(p.rect.height) }));
+		if (sized.length === 0) return fallback;
+		const largest = sized.reduce((a, b) => (a.width * a.height >= b.width * b.height ? a : b));
+		return { paneId: largest.paneId, direction: chooseSplitDirection(largest.width, largest.height) };
+	}
+
 	async function sessionPane(sessionId: string): Promise<any> {
 		const { json } = await call(["pane", "list"]);
 		if (!Array.isArray(json?.result?.panes)) throw new Error("Invalid pane list response");
@@ -131,8 +163,7 @@ export function createHerdr(exec: ExecFn) {
 			return { paneId: String(paneId), tabId: json?.result?.tab?.tab_id ? String(json.result.tab.tab_id) : undefined };
 		},
 
-		allocateSessionPane(cwd: string, sessionId: string): Promise<{ paneId: string; tabId: string }> {
-			const allocate = async () => {
+		allocateSessionPane(cwd: string, sessionId: string): Promise<{ paneId: string; tabId: string }> {			const allocate = async () => {
 				const label = `AGENTS · ${sessionId}`;
 				const parentReply = await call(["pane", "list"]);
 				const parentPanes = parentReply.json?.result?.panes;
@@ -156,7 +187,18 @@ export function createHerdr(exec: ExecFn) {
 					if (!Array.isArray(panes)) throw new Error("Invalid pane list response");
 					const anchor = panes.find((p: any) => p.tab_id === tab.tab_id);
 					if (!anchor) throw new Error("Shared tab has no pane; retry allocation");
-					const split = await call(["pane", "split", "--pane", anchor.pane_id, "--cwd", cwd, "--direction", "right", "--no-focus"]);
+					const target = await gridSplitTarget(anchor.pane_id);
+					const split = await call([
+						"pane",
+						"split",
+						"--pane",
+						target.paneId,
+						"--cwd",
+						cwd,
+						"--direction",
+						target.direction,
+						"--no-focus",
+					]);
 					const paneId = split.json?.result?.pane?.pane_id;
 					if (!paneId) throw new Error("Shared-tab split returned no pane id");
 					return { paneId: String(paneId), tabId: String(tab.tab_id) };
@@ -170,8 +212,7 @@ export function createHerdr(exec: ExecFn) {
 			return pending;
 		},
 
-		async splitPane(cwd: string, signal?: AbortSignal): Promise<string> {
-			const { json } = await call(["pane", "split", "--cwd", cwd, "--direction", "right"], 30_000, signal);
+		async splitPane(cwd: string, signal?: AbortSignal): Promise<string> {			const { json } = await call(["pane", "split", "--cwd", cwd, "--direction", "right"], 30_000, signal);
 			const id = json?.result?.pane?.pane_id;
 			if (!id) throw new Error(`herdr pane split returned no pane id: ${JSON.stringify(json).slice(0, 200)}`);
 			return String(id);
