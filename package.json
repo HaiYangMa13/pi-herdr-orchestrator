@@ -1,0 +1,45 @@
+{
+  "name": "pi-herdr-orchestrator",
+  "version": "0.2.0",
+  "description": "herdr-backed subagent orchestrator for the Pi coding agent: real panes, per-agent result contracts, and TypeSafe Jev gates",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "pi-extension",
+    "herdr",
+    "subagent",
+    "orchestration",
+    "multi-agent",
+    "terminal"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "files": [
+    "index.ts",
+    "child-ui.ts",
+    "src/",
+    "agents/",
+    "README.md",
+    "DESIGN.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test tests/ui.test.mjs && node --experimental-strip-types --test tests/fleet-policy.test.ts",
+    "test:herdr": "node tests/herdr-ui-acceptance.mjs",
+    "prepack": "npm test"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  }
+}

@@ -1,0 +1,2024 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>pi-herd v2 终端子任务与多窗格架构原型 (Terminal Multi-Pane &amp; /herdr Palette)</title>
+  <style>
+    :root {
+      --color-background: #020617;
+      --color-surface: #090d1a;
+      --color-surface-dim: #050811;
+      --color-surface-hover: #131b2e;
+      --color-primary: #0f172a;
+      --color-secondary: #1e293b;
+      --color-border: #27354a;
+      --color-border-bright: #38bdf8;
+      --color-foreground: #f8fafc;
+      --color-muted: #64748b;
+      --color-muted-light: #94a3b8;
+      --color-accent: #38bdf8;
+      --color-success: #22c55e;
+      --color-warning: #f59e0b;
+      --color-destructive: #ef4444;
+      --font-mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--color-background);
+      color: var(--color-foreground);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.5;
+      min-height: 100vh;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Container */
+    .app-container {
+      width: 100%;
+      max-width: 1080px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: max-width 200ms ease;
+    }
+
+    .app-container.width-100 {
+      max-width: 1080px;
+    }
+
+    .app-container.width-80 {
+      max-width: 82ch;
+    }
+
+    .app-container.width-48 {
+      max-width: 52ch;
+    }
+
+    /* Prototype Control Bar (Explicitly distinguished from Terminal Chrome) */
+    .proto-bar {
+      background: #080d19;
+      border: 1px dashed #27354a;
+      border-radius: 6px;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .proto-bar-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .proto-badge {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: #1e293b;
+      color: #38bdf8;
+      border: 1px solid #334155;
+    }
+
+    .proto-subtext {
+      font-size: 11px;
+      color: var(--color-muted-light);
+    }
+
+    .proto-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .proto-btn {
+      appearance: none;
+      border: 1px solid var(--color-border);
+      background-color: var(--color-secondary);
+      color: var(--color-foreground);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      padding: 4px 9px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: background-color 150ms ease, border-color 150ms ease;
+    }
+
+    .proto-btn:hover {
+      background-color: #2b3952;
+      border-color: #475569;
+    }
+
+    .proto-btn:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 1px;
+    }
+
+    .proto-btn.active {
+      background-color: #1e3a5f;
+      border-color: #38bdf8;
+      color: #ffffff;
+    }
+
+    .proto-btn.btn-accent {
+      background-color: #0d2818;
+      border-color: #22c55e;
+      color: #4ade80;
+    }
+
+    .proto-btn.btn-accent:hover {
+      background-color: #133a23;
+    }
+
+    .proto-btn.btn-palette {
+      background-color: #1a233a;
+      border-color: #38bdf8;
+      color: #7dd3fc;
+      font-weight: 600;
+    }
+
+    .proto-helper {
+      font-size: 11px;
+      color: #94a3b8;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #040813;
+      padding: 5px 8px;
+      border-radius: 4px;
+    }
+
+    /* Terminal Workspace Outer Shell */
+    .terminal-shell {
+      background-color: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.7);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    /* Window Header & Tabs */
+    .window-header {
+      background-color: #0b1120;
+      border-bottom: 1px solid var(--color-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      user-select: none;
+      height: 38px;
+    }
+
+    .window-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
+    }
+
+    .mac-dots {
+      display: flex;
+      gap: 5px;
+      padding-left: 4px;
+    }
+
+    .mac-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+    }
+    .mac-dot.close { background: #ef4444; }
+    .mac-dot.min { background: #f59e0b; }
+    .mac-dot.max { background: #22c55e; }
+
+    /* Workspace Tabs */
+    .workspace-tabs {
+      display: flex;
+      gap: 4px;
+      height: 38px;
+      align-items: flex-end;
+    }
+
+    .ws-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      height: 32px;
+      padding: 0 12px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--color-muted-light);
+      background: #0d1527;
+      border: 1px solid var(--color-border);
+      border-bottom: none;
+      border-radius: 5px 5px 0 0;
+      cursor: pointer;
+      position: relative;
+      transition: background 150ms, color 150ms;
+    }
+
+    .ws-tab:hover {
+      color: #f8fafc;
+      background: #142038;
+    }
+
+    .ws-tab.active {
+      background: var(--color-surface);
+      color: #38bdf8;
+      border-color: var(--color-border);
+      border-bottom: 1px solid var(--color-surface);
+      margin-bottom: -1px;
+    }
+
+    .ws-tab.active::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: #38bdf8;
+      border-radius: 4px 4px 0 0;
+    }
+
+    .ws-tab-count {
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 10px;
+      background: #1e293b;
+      color: var(--color-muted-light);
+    }
+
+    .ws-tab.active .ws-tab-count {
+      background: #1e3a5f;
+      color: #7dd3fc;
+    }
+
+    .window-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .palette-trigger-btn {
+      appearance: none;
+      border: 1px solid #27354a;
+      background: #0d172a;
+      color: #94a3b8;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 150ms ease;
+    }
+
+    .palette-trigger-btn:hover {
+      background: #1e293b;
+      color: #f8fafc;
+      border-color: #38bdf8;
+    }
+
+    .kbd-shortcut {
+      background: #060913;
+      padding: 1px 4px;
+      border-radius: 3px;
+      border: 1px solid #1e293b;
+      font-size: 10px;
+      color: #64748b;
+    }
+
+    /* Workspace Content Area */
+    .workspace-body {
+      display: flex;
+      flex-direction: column;
+      min-height: 480px;
+      background: var(--color-surface);
+    }
+
+    /* Tab 1: MAIN VIEWPORT */
+    .view-main {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      padding: 12px;
+      gap: 10px;
+    }
+
+    .pane-titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #070c18;
+      border: 1px solid var(--color-border);
+      border-radius: 4px;
+      padding: 6px 10px;
+      font-size: 11px;
+      letter-spacing: 0.3px;
+    }
+
+    .pane-title-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .identity-tag {
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+
+    .identity-tag.main-tag {
+      background: #2b1f07;
+      color: #f59e0b;
+      border: 1px solid #78350f;
+    }
+
+    .identity-tag.sub-tag {
+      background: #082435;
+      color: #38bdf8;
+      border: 1px solid #0369a1;
+    }
+
+    .focused-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 10px;
+      font-weight: 700;
+      color: #22c55e;
+      background: #062312;
+      border: 1px solid #15803d;
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    .unfocused-badge {
+      font-size: 10px;
+      color: #64748b;
+      padding: 1px 5px;
+    }
+
+    .main-transcript {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      color: #94a3b8;
+      padding: 4px 2px;
+      flex: 1;
+      font-size: 12px;
+    }
+
+    .chat-row {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .chat-user {
+      color: #f8fafc;
+      font-weight: 500;
+    }
+
+    .chat-user .prompt-sym {
+      color: #38bdf8;
+      margin-right: 6px;
+      font-weight: 700;
+    }
+
+    .chat-agent {
+      color: #cbd5e1;
+    }
+
+    .chat-agent .agent-name {
+      color: #a855f7;
+      font-weight: 600;
+      margin-right: 6px;
+    }
+
+    .chat-log {
+      color: #64748b;
+      padding-left: 10px;
+      border-left: 2px solid #1e293b;
+      font-size: 11px;
+    }
+
+    /* FLEET ACTIVITY WIDGET (aboveEditor) */
+    .fleet-widget {
+      margin-top: auto;
+      background: #060a14;
+      border-radius: 4px;
+      border: 1px solid #1a2538;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: all 180ms ease;
+    }
+
+    .fleet-widget.unmounted {
+      display: none;
+    }
+
+    .fleet-header-rule {
+      display: flex;
+      align-items: center;
+      padding: 4px 8px;
+      background: #090f1d;
+      border-bottom: 1px solid #1a2538;
+      font-size: 11px;
+      color: #64748b;
+      gap: 6px;
+    }
+
+    .fleet-title-text {
+      color: #cbd5e1;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .fleet-counts {
+      color: #64748b;
+      font-size: 11px;
+      margin-left: auto;
+    }
+
+    .fleet-rows {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .fleet-row {
+      display: flex;
+      align-items: center;
+      padding: 4px 8px;
+      font-size: 11px;
+      border-bottom: 1px solid #0d1627;
+      gap: 8px;
+      transition: background 120ms;
+    }
+
+    .fleet-row:last-child {
+      border-bottom: none;
+    }
+
+    .fleet-row:hover {
+      background: #0c1424;
+    }
+
+    .f-col-marker {
+      width: 14px;
+      text-align: center;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .marker-running { color: #38bdf8; }
+    .marker-blocked { color: #f59e0b; }
+    .marker-done { color: #22c55e; }
+    .marker-closed { color: #64748b; }
+
+    .f-col-label {
+      font-weight: 600;
+      color: #f1f5f9;
+      width: 120px;
+      flex-shrink: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .f-col-role {
+      color: #a855f7;
+      font-size: 10px;
+      width: 60px;
+      flex-shrink: 0;
+    }
+
+    .f-col-desc {
+      color: #94a3b8;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .f-col-action {
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+
+    .f-jump-btn {
+      appearance: none;
+      background: #111e33;
+      border: 1px solid #233756;
+      color: #7dd3fc;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+
+    .f-jump-btn:hover {
+      background: #1b2f4f;
+      border-color: #38bdf8;
+    }
+
+    .fleet-unmounted-banner {
+      display: none;
+      padding: 6px 10px;
+      background: #050a14;
+      border: 1px dashed #1e293b;
+      border-radius: 4px;
+      color: #64748b;
+      font-size: 11px;
+      text-align: center;
+      margin-top: auto;
+    }
+
+    .fleet-unmounted-banner.active {
+      display: block;
+    }
+
+    /* Terminal Editor Input Line */
+    .editor-prompt-line {
+      display: flex;
+      align-items: center;
+      background: #070c18;
+      border: 1px solid var(--color-border);
+      border-radius: 4px;
+      padding: 5px 8px;
+      gap: 6px;
+    }
+
+    .prompt-cursor-sym {
+      color: #22c55e;
+      font-weight: 700;
+    }
+
+    .editor-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #f8fafc;
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    .editor-input::placeholder {
+      color: #475569;
+    }
+
+    .editor-helper-tip {
+      font-size: 10px;
+      color: #64748b;
+      flex-shrink: 0;
+    }
+
+    /* Tab 2: SHARED AGENTS MULTI-PANE VIEWPORT */
+    .view-agents {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      padding: 10px;
+      gap: 8px;
+    }
+
+    .agents-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #070c18;
+      border: 1px solid var(--color-border);
+      border-radius: 4px;
+      padding: 5px 10px;
+      font-size: 11px;
+    }
+
+    .btn-back-parent {
+      appearance: none;
+      border: 1px solid #334155;
+      background: #141d2e;
+      color: #38bdf8;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: background 150ms;
+    }
+
+    .btn-back-parent:hover {
+      background: #1d2b45;
+      border-color: #38bdf8;
+    }
+
+    .agents-tab-meta {
+      color: #94a3b8;
+      font-size: 11px;
+    }
+
+    /* Panes Container Grid */
+    .panes-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      flex: 1;
+    }
+
+    .app-container.width-80 .panes-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .app-container.width-48 .panes-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .subagent-pane {
+      background: #060a14;
+      border: 1px solid #1a2538;
+      border-radius: 5px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      cursor: pointer;
+      transition: border-color 150ms ease, box-shadow 150ms ease;
+      min-height: 220px;
+    }
+
+    .subagent-pane:hover {
+      border-color: #2e4363;
+    }
+
+    /* Focused Child Pane Styles: Explicit textual badge + prominent border */
+    .subagent-pane.focused {
+      border: 1px solid #38bdf8;
+      box-shadow: 0 0 0 1px #38bdf8, 0 4px 16px rgba(56, 189, 248, 0.15);
+    }
+
+    .pane-header {
+      background: #090f1d;
+      border-bottom: 1px solid #1a2538;
+      padding: 6px 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px;
+      font-size: 11px;
+    }
+
+    .subagent-pane.focused .pane-header {
+      background: #0c182b;
+      border-bottom-color: #274770;
+    }
+
+    .pane-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .pane-name {
+      font-weight: 600;
+      color: #f1f5f9;
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .pane-badges {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .pane-body {
+      padding: 8px;
+      font-size: 11px;
+      line-height: 1.45;
+      color: #94a3b8;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      background: #050812;
+      overflow-y: auto;
+    }
+
+    .pane-log-line {
+      display: flex;
+      gap: 6px;
+      font-family: var(--font-mono);
+      word-break: break-all;
+    }
+
+    .pane-log-ts {
+      color: #475569;
+      flex-shrink: 0;
+    }
+
+    .pane-closed-notice {
+      margin-top: auto;
+      background: #08111e;
+      border: 1px dashed #334155;
+      border-radius: 4px;
+      padding: 6px 8px;
+      font-size: 10px;
+      color: #94a3b8;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    /* COMMAND PALETTE (/herdr) MODAL */
+    .palette-backdrop {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.78);
+      backdrop-filter: blur(2px);
+      z-index: 100;
+      align-items: flex-start;
+      justify-content: center;
+      padding-top: 36px;
+    }
+
+    .palette-backdrop.open {
+      display: flex;
+    }
+
+    .palette-box {
+      width: 92%;
+      max-width: 580px;
+      background: #090e1a;
+      border: 1px solid #38bdf8;
+      border-radius: 6px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(56, 189, 248, 0.3);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .palette-input-wrap {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      background: #0c1424;
+      border-bottom: 1px solid #1e2e47;
+      gap: 8px;
+    }
+
+    .palette-prompt-sym {
+      color: #38bdf8;
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .palette-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #ffffff;
+      font-family: var(--font-mono);
+      font-size: 13px;
+    }
+
+    .palette-input::placeholder {
+      color: #475569;
+    }
+
+    .palette-scope-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      background: #14223d;
+      color: #7dd3fc;
+      border-radius: 3px;
+      border: 1px solid #1e3a5f;
+      flex-shrink: 0;
+    }
+
+    .palette-list {
+      display: flex;
+      flex-direction: column;
+      max-height: 260px;
+      overflow-y: auto;
+      list-style: none;
+      padding: 4px 0;
+    }
+
+    .palette-item {
+      display: flex;
+      align-items: center;
+      padding: 6px 12px;
+      gap: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: background 100ms;
+      user-select: none;
+    }
+
+    .palette-item:hover,
+    .palette-item.selected {
+      background: #14223b;
+      color: #ffffff;
+    }
+
+    .palette-item.selected {
+      border-left: 3px solid #38bdf8;
+      padding-left: 9px;
+    }
+
+    .palette-item-marker {
+      width: 14px;
+      text-align: center;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .palette-item-label {
+      font-weight: 600;
+      color: #f8fafc;
+      width: 130px;
+      flex-shrink: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .palette-item-role {
+      font-size: 11px;
+      color: #c4a6ff;
+      width: 65px;
+      flex-shrink: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .palette-item-state {
+      font-size: 11px;
+      color: #94a3b8;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .palette-item-action {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: #1e293b;
+      color: #7dd3fc;
+      border: 1px solid #334155;
+      flex-shrink: 0;
+    }
+
+    .palette-item.selected .palette-item-action {
+      background: #0284c7;
+      color: #ffffff;
+      border-color: #38bdf8;
+    }
+
+    .palette-empty {
+      padding: 20px 12px;
+      text-align: center;
+      color: #64748b;
+      font-size: 12px;
+    }
+
+    .palette-footer {
+      background: #060913;
+      border-top: 1px solid #1a2538;
+      padding: 6px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 10px;
+      color: #64748b;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .palette-disclosure {
+      color: #94a3b8;
+    }
+
+    .palette-keys {
+      display: flex;
+      gap: 6px;
+    }
+
+    /* RESULT DETAIL MODAL */
+    .result-backdrop {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.85);
+      backdrop-filter: blur(2px);
+      z-index: 110;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .result-backdrop.open {
+      display: flex;
+    }
+
+    .result-dialog {
+      width: 100%;
+      max-width: 620px;
+      background: #0a0f1d;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.9);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .result-dialog-header {
+      background: #0d1527;
+      border-bottom: 1px solid #1e293b;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .result-dialog-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #f8fafc;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-close-modal {
+      appearance: none;
+      background: #141e30;
+      border: 1px solid #334155;
+      color: #94a3b8;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+
+    .btn-close-modal:hover {
+      background: #202d45;
+      color: #ffffff;
+    }
+
+    .result-dialog-meta {
+      background: #070b16;
+      border-bottom: 1px solid #162235;
+      padding: 6px 12px;
+      font-size: 10px;
+      color: #64748b;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .result-dialog-body {
+      padding: 12px;
+      max-height: 280px;
+      overflow-y: auto;
+      font-size: 11px;
+      line-height: 1.5;
+      color: #cbd5e1;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .result-code-box {
+      background: #040711;
+      border: 1px solid #1b263b;
+      border-radius: 4px;
+      padding: 8px;
+      font-family: var(--font-mono);
+      color: #7dd3fc;
+      white-space: pre-wrap;
+    }
+
+    /* Screen Width Responsiveness */
+    @media (max-width: 640px) {
+      .f-col-desc { display: none; }
+      .palette-item-desc { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-container width-100" id="appContainer">
+
+  <!-- TOP PROTOTYPE CONTROLS (Explicitly labeled as prototype sandbox) -->
+  <aside class="proto-bar" aria-label="原型演练操作区">
+    <div class="proto-bar-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span class="proto-badge">原型控制台 · 演示模式</span>
+        <span class="proto-subtext">pi-herd v2 终端架构：MAIN 与 AGENTS 隔离、/herdr 选单与焦点管理</span>
+      </div>
+      <div class="proto-controls">
+        <span style="font-size:11px; color:#64748b;">视口宽度:</span>
+        <button type="button" class="proto-btn active" id="btnWidth100" onclick="setWidth('100')">100列 (宽屏)</button>
+        <button type="button" class="proto-btn" id="btnWidth80" onclick="setWidth('80')">80列 (标准)</button>
+        <button type="button" class="proto-btn" id="btnWidth48" onclick="setWidth('48')">48列 (窄屏)</button>
+      </div>
+    </div>
+    <div class="proto-controls">
+      <span style="font-size:11px; color:#64748b;">场景演练:</span>
+      <button type="button" class="proto-btn btn-palette" onclick="openPalette()">
+        呼出 /herdr 菜单 (模拟)
+      </button>
+      <button type="button" class="proto-btn btn-accent" id="btnSimDone" onclick="simulateCompleteTask()">
+        触发 download-tests 完成并安全关闭 Pane
+      </button>
+      <button type="button" class="proto-btn" id="btnSimExpire" onclick="simulateExpireTimer()">
+        +30s 倒计时结束 (衰减卸载已完成任务)
+      </button>
+      <button type="button" class="proto-btn" onclick="resetDefaultScenario()">
+        重置为初始混合状态
+      </button>
+    </div>
+    <div class="proto-helper">
+      <span>💡 交互提示：真实命令为 <code>/herd</code>；<code>/herdr</code> 为本原型提议之快捷弹窗别名。在底部输入框输入 <code>/herdr</code> 并回车，或按 <kbd>Ctrl+P</kbd> 即可呼出命令面板。</span>
+    </div>
+  </aside>
+
+  <!-- TERMINAL WORKSPACE WINDOW (Herdr Workspace Shell) -->
+  <main class="terminal-shell" id="terminalShell" role="region" aria-label="Terminal Herdr Workspace">
+
+    <!-- Workspace Header & Tabs -->
+    <header class="window-header">
+      <div class="window-left">
+        <div class="mac-dots" aria-hidden="true">
+          <span class="mac-dot close"></span>
+          <span class="mac-dot min"></span>
+          <span class="mac-dot max"></span>
+        </div>
+        <nav class="workspace-tabs" role="tablist" aria-label="工作区标签页">
+          <button type="button"
+                  id="tabMainBtn"
+                  class="ws-tab active"
+                  role="tab"
+                  aria-selected="true"
+                  aria-controls="viewMain"
+                  onclick="switchTab('main')">
+            <span>MAIN · redock-ohos</span>
+          </button>
+          <button type="button"
+                  id="tabAgentsBtn"
+                  class="ws-tab"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="viewAgents"
+                  onclick="switchTab('agents')">
+            <span>AGENTS · s_8a2f</span>
+            <span class="ws-tab-count" id="agentsCountBadge">3</span>
+          </button>
+        </nav>
+      </div>
+
+      <div class="window-right">
+        <button type="button" class="palette-trigger-btn" onclick="openPalette()" title="呼出命令面板 (/herdr)">
+          <span>/herdr 选单</span>
+          <span class="kbd-shortcut">Ctrl+P</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- WORKSPACE BODY -->
+    <div class="workspace-body">
+
+      <!-- ================= TAB 1: MAIN VIEWPORT ================= -->
+      <section id="viewMain" class="view-main" role="tabpanel" aria-labelledby="tabMainBtn">
+        <!-- Main Pane Titlebar -->
+        <div class="pane-titlebar">
+          <div class="pane-title-left">
+            <span class="identity-tag main-tag">MAIN</span>
+            <strong style="color:#f8fafc;">redock-ohos</strong>
+            <span style="color:#64748b;">·</span>
+            <span style="color:#94a3b8;">GPT 6.1 Sol high</span>
+            <span style="color:#64748b;">· parent s_8a2f</span>
+          </div>
+          <div>
+            <span class="focused-badge" id="mainFocusedBadge">[FOCUSED]</span>
+          </div>
+        </div>
+
+        <!-- Transcript Area -->
+        <div class="main-transcript" id="mainTranscript" aria-label="主会话转录流">
+          <div class="chat-row">
+            <div class="chat-user"><span class="prompt-sym">❯</span>分析 OpenHarmony 构建套件并派发下载与审查子任务</div>
+          </div>
+          <div class="chat-row">
+            <div class="chat-agent"><span class="agent-name">MAIN (GPT 6.1 Sol)</span>已初始化共享子 Agent 窗口 (AGENTS · s_8a2f)，派发 3 个独立 Pane 执行任务。</div>
+          </div>
+          <div class="chat-row">
+            <div class="chat-log">→ herd_spawn: [download-tests] scout 探针启动拉取测试包 (pane #pane-download)</div>
+            <div class="chat-log">→ herd_spawn: [jev-audit] reviewer 审计代码合规性 (pane #pane-jev)</div>
+            <div class="chat-log">→ herd_spawn: [ohos-build] worker 构建 libohos 核心模块 (pane #pane-build)</div>
+          </div>
+        </div>
+
+        <!-- FLEET ACTIVITY WIDGET (aboveEditor) -->
+        <div class="fleet-widget" id="fleetWidget" aria-label="子任务紧凑活动挂件">
+          <div class="fleet-header-rule">
+            <span class="fleet-title-text">
+              <span style="color:#38bdf8;">──</span> pi-herd · 子 Agent 活动条
+            </span>
+            <span style="color:#334155;">|</span>
+            <span style="font-size:10px; color:#94a3b8;">共享 Tab: AGENTS · s_8a2f</span>
+            <span class="fleet-counts" id="fleetCountsSummary">2 运行中 · 1 待答 · 1 产出就绪</span>
+          </div>
+
+          <div class="fleet-rows" id="fleetRowsContainer">
+            <!-- Dynamic Task Rows injected by JS -->
+          </div>
+        </div>
+
+        <!-- Unmounted Banner (shown when all tasks are expired & widget auto-unmounts) -->
+        <div class="fleet-unmounted-banner" id="fleetUnmountedBanner">
+          ✓ 当前无活跃子 Agent 任务 · 活动挂件已自动零高度卸载 (历史产出随时输入 /herdr 查看)
+        </div>
+
+        <!-- Terminal Editor Command Line Input -->
+        <form class="editor-prompt-line" id="editorForm" onsubmit="handleEditorSubmit(event)">
+          <span class="prompt-cursor-sym">❯</span>
+          <input type="text"
+                 class="editor-input"
+                 id="editorInput"
+                 autocomplete="off"
+                 placeholder="输入 /herdr 打开命令面板，或直接输入提示词..."
+                 aria-label="终端主输入框" />
+          <span class="editor-helper-tip">回车提交</span>
+        </form>
+      </section>
+
+      <!-- ================= TAB 2: AGENTS SHARED MULTI-PANE VIEWPORT ================= -->
+      <section id="viewAgents" class="view-agents" role="tabpanel" aria-labelledby="tabAgentsBtn" style="display:none;">
+        <div class="agents-toolbar">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <button type="button" class="btn-back-parent" onclick="switchTab('main')">
+              ← 返回主会话 (MAIN · redock-ohos)
+            </button>
+            <span class="identity-tag sub-tag">AGENTS TAB</span>
+          </div>
+          <div class="agents-tab-meta">
+            父会话: <code>s_8a2f</code> · 工作区: <code>redock-ohos</code> (1 个共享 Tab · 多个独立 Pane)
+          </div>
+        </div>
+
+        <!-- MULTI-PANE CONTAINER (2-3 distinct panes) -->
+        <div class="panes-grid" id="panesGrid">
+
+          <!-- Pane 1: download-tests -->
+          <article class="subagent-pane focused" id="pane-download" onclick="focusPane('pane-download')">
+            <header class="pane-header">
+              <div class="pane-title-wrap">
+                <span class="identity-tag sub-tag">SUB</span>
+                <span class="pane-name" title="SUB · download-tests · scout · parent s_8a2f">SUB · download-tests · scout</span>
+              </div>
+              <div class="pane-badges">
+                <span style="font-size:10px; color:#64748b;">#pane-1</span>
+                <span class="focused-badge" id="badge-pane-download">[FOCUSED]</span>
+              </div>
+            </header>
+            <div class="pane-body">
+              <div class="pane-log-line">
+                <span class="pane-log-ts">[01:12:04]</span>
+                <span style="color:#38bdf8;">⠏ scout</span>
+                <span>连接 git.openharmony.cn 镜像仓库...</span>
+              </div>
+              <div class="pane-log-line">
+                <span class="pane-log-ts">[01:12:08]</span>
+                <span style="color:#22c55e;">✓</span>
+                <span>克隆 ohos-kernel-test.git (78MB) 完成</span>
+              </div>
+              <div class="pane-log-line">
+                <span class="pane-log-ts">[01:12:15]</span>
+                <span style="color:#38bdf8;">⠏</span>
+                <span>解包 142 个自动化套件到 /root/ohos/tests/ ...</span>
+              </div>
+              <div class="pane-log-line" style="color:#f8fafc; font-weight:500;">
+                <span class="pane-log-ts">[01:12:20]</span>
+                <span>正在校验 SHA256 签名 (82/142)...</span>
+              </div>
+            </div>
+          </article>
+
+          <!-- Pane 2: jev-audit -->
+          <article class="subagent-pane" id="pane-jev" onclick="focusPane('pane-jev')">
+            <header class="pane-header">
+              <div class="pane-title-wrap">
+                <span class="identity-tag sub-tag">SUB</span>
+                <span class="pane-name" title="SUB · jev-audit · reviewer · parent s_8a2f">SUB · jev-audit · reviewer</span>
+              </div>
+              <div class="pane-badges">
+                <span style="font-size:10px; color:#64748b;">#pane-2</span>
+                <span class="unfocused-badge" id="badge-pane-jev">[PANE]</span>
+              </div>
+            </header>
+            <div class="pane-body">
+              <div class="pane-log-line">
+                <span class="pane-log-ts">[01:10:30]</span>
+                <span style="color:#a855f7;">reviewer</span>
+                <span>调用 Jev 合规网关 (127.0.0.1:7890)...</span>
+              </div>
+              <div class="pane-log-line">
+                <span class="pane-log-ts">[01:11:02]</span>
+                <span style="color:#22c55e;">✓</span>
+                <span>通过任务书硬性验收标准与产出路径检查</span>
+              </div>
+              <div class="pane-log-line" style="color:#fbbf24; background:#1c1303; padding:2px 4px; border-radius:3px;">
+                <span class="pane-log-ts">[01:11:45]</span>
+                <span style="color:#f59e0b; font-weight:700;">? BLOCKED:</span>
+                <span>检测到 legacy 废弃接口，需要人工确认</span>
+              </div>
+              <div class="pane-log-line" style="color:#94a3b8; font-size:10px;">
+                已写入 ask.json：等待主会话 herd_reply 确认
+              </div>
+            </div>
+          </article>
+
+          <!-- Pane 3: ohos-build -->
+          <article class="subagent-pane" id="pane-build" onclick="focusPane('pane-build')">
+            <header class="pane-header">
+              <div class="pane-title-wrap">
+                <span class="identity-tag sub-tag">SUB</span>
+                <span class="pane-name" title="SUB · ohos-build · worker · parent s_8a2f">SUB · ohos-build · worker</span>
+              </div>
+              <div class="pane-badges">
+                <span style="font-size:10px; color:#64748b;">#pane-3</span>
+                <span class="unfocused-badge" id="badge-pane-build">[PANE]</span>
+              </div>
+            </header>
+            <div class="pane-body">
+              <div class="pane-log-line">
+                <span class="pane-log-ts">[01:08:10]</span>
+                <span style="color:#38bdf8;">worker</span>
+                <span>ninja -C out/ohos-arm64 core</span>
+              </div>
+              <div class="pane-log-line">
+                <span class="pane-log-ts">[01:09:44]</span>
+                <span style="color:#22c55e;">✓</span>
+                <span>构建成功: libohos_core.so (14.2MB)</span>
+              </div>
+              <div class="pane-log-line">
+                <span class="pane-log-ts">[01:09:46]</span>
+                <span>已生成 result.md 并写入 meta.json</span>
+              </div>
+              <div class="pane-closed-notice">
+                <span style="color:#4ade80; font-weight:600;">[STATUS: CLOSED · 交付完成]</span>
+                <span>窗格已按约定自动安全关闭 (防孤儿进程)。历史产出已就绪，不可进入窗口，支持直接查看结果。</span>
+              </div>
+            </div>
+          </article>
+
+        </div>
+      </section>
+
+    </div>
+
+    <!-- ================= COMMAND PALETTE (/herdr) MODAL ================= -->
+    <div class="palette-backdrop" id="paletteBackdrop" role="dialog" aria-modal="true" aria-labelledby="paletteTitle" onclick="handleBackdropClick(event)">
+      <div class="palette-box" id="paletteBox">
+        <div class="palette-input-wrap">
+          <span class="palette-prompt-sym">/herdr</span>
+          <input type="text"
+                 class="palette-input"
+                 id="paletteSearchInput"
+                 placeholder="键入以筛选子任务 (如 download, scout, reviewer)..."
+                 autocomplete="off"
+                 oninput="handlePaletteSearch(event)"
+                 aria-label="快速检索子任务" />
+          <span class="palette-scope-badge" id="paletteScopeBadge">工作区: redock-ohos · 父会话: s_8a2f</span>
+        </div>
+
+        <ul class="palette-list" id="paletteList" role="listbox" aria-label="子会话候选列表">
+          <!-- Dynamically populated by renderPalette() -->
+        </ul>
+
+        <footer class="palette-footer">
+          <div class="palette-disclosure">
+            生产命令为 <code>/herd</code>；<code>/herdr</code> 为本规范之交互选单提案
+          </div>
+          <div class="palette-keys">
+            <span><kbd style="color:#cbd5e1;">↑↓</kbd> 移动</span>
+            <span><kbd style="color:#cbd5e1;">Enter</kbd> 确认</span>
+            <span><kbd style="color:#cbd5e1;">Esc</kbd> 取消</span>
+          </div>
+        </footer>
+      </div>
+    </div>
+
+    <!-- ================= RESULT DETAIL MODAL (查看结果) ================= -->
+    <div class="result-backdrop" id="resultBackdrop" role="dialog" aria-modal="true" aria-labelledby="resultTitle" onclick="handleResultBackdropClick(event)">
+      <div class="result-dialog" id="resultDialog">
+        <div class="result-dialog-header">
+          <span class="result-dialog-title" id="resultTitle">
+            <span style="color:#22c55e;">+</span> 任务交付归档 (result.md)
+          </span>
+          <button type="button" class="btn-close-modal" onclick="closeResultModal()">关闭 (Esc)</button>
+        </div>
+        <div class="result-dialog-meta" id="resultMeta">
+          <!-- Filled dynamically -->
+        </div>
+        <div class="result-dialog-body" id="resultBody">
+          <!-- Filled dynamically -->
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+  // ================= STATE MANAGEMENT =================
+  const state = {
+    activeTab: 'main',          // 'main' | 'agents'
+    focusedPaneId: 'pane-download', // 'pane-download' | 'pane-jev' | 'pane-build'
+    viewportWidth: '100',       // '100' | '80' | '48'
+    isPaletteOpen: false,
+    paletteQuery: '',
+    paletteSelectedIndex: 0,
+    activeResultModalTask: null,
+    lastFocusedElement: null,
+
+    // Subagent tasks data model
+    tasks: [
+      {
+        id: 'download-tests',
+        label: 'download-tests',
+        role: 'scout',
+        parentSession: 's_8a2f',
+        workspace: 'redock-ohos',
+        status: 'running',      // 'running' | 'blocked' | 'done' | 'closed'
+        marker: '⠏',
+        statusText: '拉取 OHOS 测试用例 (已克隆 78MB)...',
+        paneId: 'pane-download',
+        paneLive: true,
+        remainingSec: null,
+        retained: true,
+        resultPath: '~/.pi/agent/pi-herd/runs/s_8a2f/download-tests/result.md',
+        resultMarkdown: '# download-tests 交付报告\n\n- 状态: COMPLETED (通过验收)\n- 产出路径: /root/ohos/tests/ (142 个自动化套件)\n- 校验: SHA256 签名全部匹配\n- 耗时: 38s\n\nPane 窗格已按规范安全自动关闭防孤儿。'
+      },
+      {
+        id: 'jev-audit',
+        label: 'jev-audit',
+        role: 'reviewer',
+        parentSession: 's_8a2f',
+        workspace: 'redock-ohos',
+        status: 'blocked',
+        marker: '?',
+        statusText: '提问待答 ASK: 是否跳过 legacy 校验?',
+        paneId: 'pane-jev',
+        paneLive: true,
+        remainingSec: null,
+        retained: true,
+        resultPath: '~/.pi/agent/pi-herd/runs/s_8a2f/jev-audit/ask.json',
+        resultMarkdown: '# jev-audit 阻塞提问 (ask.json)\n\n- 提问: 检测到 OHOS 3.2 遗留接口引用，是否允许跳过 legacy 兼容检查？\n- 等待指令: 使用 `herd_reply` 提供回答后解除阻塞。\n- 当前状态: Pane 存活保持，阻塞中。'
+      },
+      {
+        id: 'ohos-build',
+        label: 'ohos-build',
+        role: 'worker',
+        parentSession: 's_8a2f',
+        workspace: 'redock-ohos',
+        status: 'done',
+        marker: '+',
+        statusText: '产出就绪 (留存 26s · pane已安全关闭)',
+        paneId: 'pane-build',
+        paneLive: false,        // Pane closed on completion to prevent orphans!
+        remainingSec: 26,
+        retained: true,         // within 30s grace period
+        resultPath: '~/.pi/agent/pi-herd/runs/s_8a2f/ohos-build/result.md',
+        resultMarkdown: '# ohos-build 编译交付报告\n\n- 目标产物: `out/ohos-arm64/libohos_core.so` (14.2 MB)\n- 编译架构: aarch64-linux-ohos\n- 耗时: 1m 34s (ninja: 284/284 targets)\n- Pane 状态: 已关闭 (防孤儿进程退出)\n- 结果落盘: `~/.pi/agent/pi-herd/runs/s_8a2f/ohos-build/result.md`'
+      }
+    ]
+  };
+
+  // ================= TAB NAVIGATION =================
+  function switchTab(tab) {
+    state.activeTab = tab;
+    const tabMainBtn = document.getElementById('tabMainBtn');
+    const tabAgentsBtn = document.getElementById('tabAgentsBtn');
+    const viewMain = document.getElementById('viewMain');
+    const viewAgents = document.getElementById('viewAgents');
+
+    if (tab === 'main') {
+      tabMainBtn.classList.add('active');
+      tabMainBtn.setAttribute('aria-selected', 'true');
+      tabAgentsBtn.classList.remove('active');
+      tabAgentsBtn.setAttribute('aria-selected', 'false');
+      viewMain.style.display = 'flex';
+      viewAgents.style.display = 'none';
+    } else {
+      tabAgentsBtn.classList.add('active');
+      tabAgentsBtn.setAttribute('aria-selected', 'true');
+      tabMainBtn.classList.remove('active');
+      tabMainBtn.setAttribute('aria-selected', 'false');
+      viewMain.style.display = 'none';
+      viewAgents.style.display = 'flex';
+      updatePaneFocusStyles();
+    }
+  }
+
+  // ================= PANE FOCUS MANAGEMENT =================
+  function focusPane(paneId) {
+    if (!state.tasks.some(t => t.paneId === paneId && t.paneLive)) return;
+    state.focusedPaneId = paneId;
+    updatePaneFocusStyles();
+    const pane = document.getElementById(paneId);
+    if (pane) { pane.tabIndex = 0; pane.focus({preventScroll:true}); }
+  }
+
+  function updatePaneFocusStyles() {
+    const paneIds = ['pane-download', 'pane-jev', 'pane-build'];
+    paneIds.forEach(id => {
+      const paneEl = document.getElementById(id);
+      const badgeEl = document.getElementById('badge-' + id);
+      if (!paneEl) return;
+
+      if (id === state.focusedPaneId) {
+        paneEl.classList.add('focused');
+        if (badgeEl) {
+          badgeEl.className = 'focused-badge';
+          badgeEl.textContent = '[FOCUSED]';
+        }
+      } else {
+        paneEl.classList.remove('focused');
+        if (badgeEl) {
+          badgeEl.className = 'unfocused-badge';
+          badgeEl.textContent = '[PANE]';
+        }
+      }
+    });
+  }
+
+  // ================= VIEWPORT WIDTH SWITCH =================
+  function setWidth(width) {
+    state.viewportWidth = width;
+    const container = document.getElementById('appContainer');
+    container.className = 'app-container width-' + width;
+
+    document.getElementById('btnWidth100').classList.toggle('active', width === '100');
+    document.getElementById('btnWidth80').classList.toggle('active', width === '80');
+    document.getElementById('btnWidth48').classList.toggle('active', width === '48');
+  }
+
+  // ================= FLEET ACTIVITY WIDGET RENDERING =================
+  function renderFleetWidget() {
+    const container = document.getElementById('fleetRowsContainer');
+    const countsSummary = document.getElementById('fleetCountsSummary');
+    const fleetWidget = document.getElementById('fleetWidget');
+    const unmountedBanner = document.getElementById('fleetUnmountedBanner');
+    const agentsCountBadge = document.getElementById('agentsCountBadge');
+    state.tasks.forEach(t => {
+      const pane = document.getElementById(t.paneId);
+      if (pane) pane.style.display = t.paneLive ? '' : 'none';
+    });
+
+    // Filter tasks that are currently retained on screen
+    const visibleTasks = state.tasks.filter(t => t.retained);
+
+    // Update counts summary
+    const runningCount = state.tasks.filter(t => t.status === 'running').length;
+    const blockedCount = state.tasks.filter(t => t.status === 'blocked').length;
+    const readyCount = state.tasks.filter(t => t.status === 'done' && t.retained).length;
+    countsSummary.textContent = `${runningCount} 运行中 · ${blockedCount} 待答 · ${readyCount} 产出就绪`;
+    agentsCountBadge.textContent = state.tasks.filter(t => t.paneLive).length;
+
+    if (visibleTasks.length === 0) {
+      fleetWidget.classList.add('unmounted');
+      unmountedBanner.classList.add('active');
+      return;
+    }
+
+    fleetWidget.classList.remove('unmounted');
+    unmountedBanner.classList.remove('active');
+
+    container.innerHTML = '';
+    visibleTasks.forEach(task => {
+      const row = document.createElement('div');
+      row.className = 'fleet-row';
+
+      let markerClass = 'marker-running';
+      if (task.marker === '?') markerClass = 'marker-blocked';
+      if (task.marker === '+') markerClass = 'marker-done';
+      if (task.marker === '.') markerClass = 'marker-closed';
+
+      let actionHtml = '';
+      if (task.paneLive) {
+        actionHtml = `<button type="button" class="f-jump-btn" onclick="jumpToPane('${task.paneId}')">进入窗口 →</button>`;
+      } else {
+        actionHtml = `<button type="button" class="f-jump-btn" onclick="openResultModal('${task.id}')">查看结果 📄</button>`;
+      }
+
+      row.innerHTML = `
+        <span class="f-col-marker ${markerClass}">${escapeHtml(task.marker)}</span>
+        <span class="f-col-label" title="${escapeHtml(task.label)}">${escapeHtml(task.label)}</span>
+        <span class="f-col-role">${escapeHtml(task.role)}</span>
+        <span class="f-col-desc" title="${escapeHtml(task.statusText)}">${escapeHtml(task.statusText)}</span>
+        <span class="f-col-action">${actionHtml}</span>
+      `;
+      container.appendChild(row);
+    });
+  }
+
+  function jumpToPane(paneId) {
+    switchTab('agents');
+    focusPane(paneId);
+    const target = document.getElementById(paneId);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+
+  // ================= /herdr COMMAND PALETTE =================
+  function openPalette() {
+    state.lastFocusedElement = document.activeElement;
+    state.isPaletteOpen = true;
+    state.paletteQuery = '';
+    state.paletteSelectedIndex = 0;
+
+    const backdrop = document.getElementById('paletteBackdrop');
+    backdrop.classList.add('open');
+
+    const input = document.getElementById('paletteSearchInput');
+    input.value = '';
+    renderPalette();
+    setTimeout(() => input.focus(), 50);
+  }
+
+  function closePalette(restoreFocus = true) {
+    state.isPaletteOpen = false;
+    const backdrop = document.getElementById('paletteBackdrop');
+    backdrop.classList.remove('open');
+
+    if (restoreFocus && state.lastFocusedElement && typeof state.lastFocusedElement.focus === 'function') {
+      state.lastFocusedElement.focus();
+    }
+  }
+
+  function handleBackdropClick(event) {
+    if (event.target === document.getElementById('paletteBackdrop')) {
+      closePalette();
+    }
+  }
+
+  function handlePaletteSearch(event) {
+    state.paletteQuery = event.target.value.trim().toLowerCase();
+    state.paletteSelectedIndex = 0;
+    renderPalette();
+  }
+
+  function getPaletteEntries() {
+    const q = state.paletteQuery;
+    const entries = [];
+
+    // Always include Main Session Return option if query matches
+    if ('返回主会话 main redock-ohos gpt 6.1'.includes(q)) {
+      entries.push({
+        type: 'main',
+        label: 'MAIN · redock-ohos',
+        role: 'lead',
+        status: 'GPT 6.1 Sol (父会话主视口)',
+        marker: 'M',
+        actionLabel: '返回主会话',
+        paneLive: true,
+        execute: () => {
+          closePalette(false);
+          switchTab('main');
+          document.getElementById('editorInput').focus();
+        }
+      });
+    }
+
+    // Subagent tasks from current workspace redock-ohos and parent session s_8a2f
+    state.tasks.filter(t => t.workspace === 'redock-ohos' && t.parentSession === 's_8a2f').forEach(t => {
+      const matchLabel = t.label.toLowerCase().includes(q);
+      const matchRole = t.role.toLowerCase().includes(q);
+      const matchStatus = t.status.toLowerCase().includes(q) || t.statusText.toLowerCase().includes(q);
+
+      if (matchLabel || matchRole || matchStatus || q === '') {
+        if (t.paneLive) {
+          entries.push({
+            type: 'subagent-live',
+            task: t,
+            label: t.label,
+            role: t.role,
+            status: t.statusText,
+            marker: t.marker,
+            actionLabel: '进入窗口',
+            execute: () => {
+              closePalette(false);
+              jumpToPane(t.paneId);
+            }
+          });
+        } else {
+          // Completed task with closed pane -> View Result, NEVER jump!
+          entries.push({
+            type: 'subagent-closed',
+            task: t,
+            label: t.label,
+            role: t.role,
+            status: '已交付完成 (Pane 已安全关闭)',
+            marker: t.marker,
+            actionLabel: '查看结果',
+            execute: () => {
+              closePalette();
+              openResultModal(t.id);
+            }
+          });
+        }
+      }
+    });
+
+    return entries;
+  }
+
+  function renderPalette() {
+    const listEl = document.getElementById('paletteList');
+    const entries = getPaletteEntries();
+
+    if (entries.length === 0) {
+      listEl.innerHTML = '<li class="palette-empty" role="option">未找到匹配的子会话任务或命令</li>';
+      return;
+    }
+
+    if (state.paletteSelectedIndex >= entries.length) {
+      state.paletteSelectedIndex = entries.length - 1;
+    }
+    if (state.paletteSelectedIndex < 0) {
+      state.paletteSelectedIndex = 0;
+    }
+
+    listEl.innerHTML = '';
+    entries.forEach((entry, idx) => {
+      const item = document.createElement('li');
+      item.className = 'palette-item' + (idx === state.paletteSelectedIndex ? ' selected' : '');
+      item.setAttribute('role', 'option');
+      item.setAttribute('aria-selected', idx === state.paletteSelectedIndex ? 'true' : 'false');
+      item.id = 'palette-opt-' + idx;
+
+      let markerColor = '#38bdf8';
+      if (entry.marker === '?') markerColor = '#f59e0b';
+      if (entry.marker === '+') markerColor = '#22c55e';
+      if (entry.marker === 'M') markerColor = '#f59e0b';
+
+      item.innerHTML = `
+        <span class="palette-item-marker" style="color:${markerColor}">${escapeHtml(entry.marker)}</span>
+        <span class="palette-item-label">${escapeHtml(entry.label)}</span>
+        <span class="palette-item-role">${escapeHtml(entry.role)}</span>
+        <span class="palette-item-state">${escapeHtml(entry.status)}</span>
+        <span class="palette-item-action">${escapeHtml(entry.actionLabel)}</span>
+      `;
+
+      item.addEventListener('mouseenter', () => {
+        state.paletteSelectedIndex = idx;
+        renderPaletteSelectionOnly();
+      });
+
+      item.addEventListener('click', () => {
+        entry.execute();
+      });
+
+      listEl.appendChild(item);
+    });
+
+    // Ensure selected item is scrolled into view
+    const selectedEl = document.getElementById('palette-opt-' + state.paletteSelectedIndex);
+    if (selectedEl) {
+      selectedEl.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  function renderPaletteSelectionOnly() {
+    const listEl = document.getElementById('paletteList');
+    const items = listEl.querySelectorAll('.palette-item');
+    items.forEach((item, idx) => {
+      const isSel = idx === state.paletteSelectedIndex;
+      item.classList.toggle('selected', isSel);
+      item.setAttribute('aria-selected', isSel ? 'true' : 'false');
+    });
+  }
+
+  // ================= RESULT DETAIL MODAL =================
+  function openResultModal(taskId) {
+    const task = state.tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    state.activeResultModalTask = task;
+    state.lastFocusedElement = document.activeElement;
+
+    const backdrop = document.getElementById('resultBackdrop');
+    const titleEl = document.getElementById('resultTitle');
+    const metaEl = document.getElementById('resultMeta');
+    const bodyEl = document.getElementById('resultBody');
+
+    titleEl.innerHTML = `<span style="color:#22c55e;">+</span> 任务交付归档 · ${escapeHtml(task.label)} (${escapeHtml(task.role)})`;
+    metaEl.innerHTML = `
+      <div><strong>父会话:</strong> ${escapeHtml(task.parentSession)} | <strong>工作区:</strong> ${escapeHtml(task.workspace)} | <strong>Pane 状态:</strong> 安全关闭 (防孤儿进程)</div>
+      <div><strong>产出路径:</strong> <code>${escapeHtml(task.resultPath)}</code></div>
+    `;
+
+    bodyEl.innerHTML = `
+      <div class="result-code-box">${escapeHtml(task.resultMarkdown)}</div>
+      <div style="font-size:10px; color:#64748b; margin-top:4px;">
+        ℹ️ 说明：该任务已完成并自毁 Pane，避免内存与终端分屏僵尸堆积。随时可在 /herdr 面板中检索此历史账本。
+      </div>
+    `;
+
+    backdrop.classList.add('open');
+  }
+
+  function closeResultModal() {
+    const backdrop = document.getElementById('resultBackdrop');
+    backdrop.classList.remove('open');
+    state.activeResultModalTask = null;
+    if (state.lastFocusedElement && typeof state.lastFocusedElement.focus === 'function') {
+      state.lastFocusedElement.focus();
+    }
+  }
+
+  function handleResultBackdropClick(event) {
+    if (event.target === document.getElementById('resultBackdrop')) {
+      closeResultModal();
+    }
+  }
+
+  // ================= PROTOTYPE LIFECYCLE SIMULATION CONTROLS =================
+  function simulateCompleteTask() {
+    const task = state.tasks.find(t => t.id === 'download-tests');
+    if (!task) return;
+
+    // Transition task to done and close its pane
+    task.status = 'done';
+    task.marker = '+';
+    task.paneLive = false;
+    task.remainingSec = 30;
+    task.statusText = '测试集拉取就绪 (留存 30s · pane已安全关闭)';
+
+    // Update Pane 1 DOM representation: show closed notice without stealing tab focus
+    const pane1 = document.getElementById('pane-download');
+    if (pane1) {
+      const body = pane1.querySelector('.pane-body');
+      if (body && !body.querySelector('.pane-closed-notice')) {
+        const notice = document.createElement('div');
+        notice.className = 'pane-closed-notice';
+        notice.innerHTML = `
+          <span style="color:#4ade80; font-weight:600;">[STATUS: CLOSED · 交付完成]</span>
+          <span>测试集下载完成，Pane 已自动退出防孤儿。产出可在 /herdr 随时查看。</span>
+        `;
+        body.appendChild(notice);
+      }
+    }
+
+    renderFleetWidget();
+
+    // Disable button to prevent duplicate triggers
+    const btn = document.getElementById('btnSimDone');
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    btn.textContent = 'download-tests 已完成交付';
+  }
+
+  function simulateExpireTimer() {
+    // Grace period ends for done tasks
+    state.tasks.forEach(t => {
+      if (t.status === 'done') {
+        t.retained = false;
+        t.remainingSec = 0;
+      }
+    });
+
+    // Re-render fleet widget: the expired rows disappear from the activity widget
+    renderFleetWidget();
+
+    const btn = document.getElementById('btnSimExpire');
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    btn.textContent = '+30s 倒计时已衰减卸载';
+  }
+
+  function resetDefaultScenario() {
+    state.tasks[0].status = 'running';
+    state.tasks[0].marker = '⠏';
+    state.tasks[0].paneLive = true;
+    state.tasks[0].retained = true;
+    state.tasks[0].remainingSec = null;
+    state.tasks[0].statusText = '拉取 OHOS 测试用例 (已克隆 78MB)...';
+
+    state.tasks[1].status = 'blocked';
+    state.tasks[1].marker = '?';
+    state.tasks[1].paneLive = true;
+    state.tasks[1].retained = true;
+    state.tasks[1].remainingSec = null;
+    state.tasks[1].statusText = '提问待答 ASK: 是否跳过 legacy 校验?';
+
+    state.tasks[2].status = 'done';
+    state.tasks[2].marker = '+';
+    state.tasks[2].paneLive = false;
+    state.tasks[2].retained = true;
+    state.tasks[2].remainingSec = 26;
+    state.tasks[2].statusText = '产出就绪 (留存 26s · pane已安全关闭)';
+
+    // Reset Pane 1 notice
+    const pane1Notice = document.querySelector('#pane-download .pane-closed-notice');
+    if (pane1Notice) pane1Notice.remove();
+
+    // Reset control buttons
+    const btnDone = document.getElementById('btnSimDone');
+    btnDone.disabled = false;
+    btnDone.style.opacity = '1';
+    btnDone.textContent = '触发 download-tests 完成并安全关闭 Pane';
+
+    const btnExpire = document.getElementById('btnSimExpire');
+    btnExpire.disabled = false;
+    btnExpire.style.opacity = '1';
+    btnExpire.textContent = '+30s 倒计时结束 (衰减卸载已完成任务)';
+
+    renderFleetWidget();
+    switchTab('main');
+  }
+
+  // ================= KEYBOARD & INPUT HANDLING =================
+  function handleEditorSubmit(event) {
+    event.preventDefault();
+    const input = document.getElementById('editorInput');
+    const val = input.value.trim();
+    if (!val) return;
+
+    if (val === '/herdr' || val === '/herd') {
+      input.value = '';
+      openPalette();
+      return;
+    }
+
+    // Normal command simulation in MAIN transcript
+    const transcript = document.getElementById('mainTranscript');
+    const row = document.createElement('div');
+    row.className = 'chat-row';
+    row.innerHTML = `<div class="chat-user"><span class="prompt-sym">❯</span>${escapeHtml(val)}</div>`;
+    transcript.appendChild(row);
+
+    const replyRow = document.createElement('div');
+    replyRow.className = 'chat-row';
+    replyRow.innerHTML = `<div class="chat-agent"><span class="agent-name">MAIN</span>收到指令。若需管理或跳转子 Agent，可输入 <code>/herdr</code> 呼出选单。</div>`;
+    transcript.appendChild(replyRow);
+
+    input.value = '';
+    transcript.scrollTop = transcript.scrollHeight;
+  }
+
+  // Global keydown handler strictly bounded to palette modal when open
+  document.addEventListener('keydown', (event) => {
+    // If Result Modal is open
+    if (state.activeResultModalTask) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeResultModal();
+      }
+      return;
+    }
+
+    // Quick open shortcut: Ctrl+P or Cmd+P
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') {
+      event.preventDefault();
+      if (state.isPaletteOpen) {
+        closePalette();
+      } else {
+        openPalette();
+      }
+      return;
+    }
+
+    // When palette is open, handle keyboard navigation
+    if (state.isPaletteOpen) {
+      const entries = getPaletteEntries();
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closePalette();
+        return;
+      }
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        if (entries.length > 0) {
+          state.paletteSelectedIndex = (state.paletteSelectedIndex + 1) % entries.length;
+          renderPaletteSelectionOnly();
+          const selectedEl = document.getElementById('palette-opt-' + state.paletteSelectedIndex);
+          if (selectedEl) selectedEl.scrollIntoView({ block: 'nearest' });
+        }
+        return;
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (entries.length > 0) {
+          state.paletteSelectedIndex = (state.paletteSelectedIndex - 1 + entries.length) % entries.length;
+          renderPaletteSelectionOnly();
+          const selectedEl = document.getElementById('palette-opt-' + state.paletteSelectedIndex);
+          if (selectedEl) selectedEl.scrollIntoView({ block: 'nearest' });
+        }
+        return;
+      }
+
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        if (entries.length > 0 && entries[state.paletteSelectedIndex]) {
+          entries[state.paletteSelectedIndex].execute();
+        }
+        return;
+      }
+
+      // Trap focus inside search input
+      if (event.key === 'Tab') {
+        event.preventDefault();
+        const input = document.getElementById('paletteSearchInput');
+        if (input) input.focus();
+      }
+    }
+  });
+
+  // Utility helper
+  function escapeHtml(str) {
+    if (typeof str !== 'string') return '';
+    return str.replace(/[&<>"']/g, function(m) {
+      switch (m) {
+        case '&': return '&amp;';
+        case '<': return '&lt;';
+        case '>': return '&gt;';
+        case '"': return '&quot;';
+        case "'": return '&#39;';
+        default: return m;
+      }
+    });
+  }
+
+  // Initial load
+  document.addEventListener('DOMContentLoaded', () => {
+    renderFleetWidget();
+    updatePaneFocusStyles();
+  });
+</script>
+
+</body>
+</html>

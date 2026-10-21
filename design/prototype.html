@@ -1,0 +1,1203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>pi-herd 终端子任务挂件交互原型 (Terminal Subagent Activity Widget)</title>
+  <style>
+    :root {
+      --color-background: #020617;
+      --color-surface: #090d1a;
+      --color-surface-hover: #131b2e;
+      --color-primary: #0f172a;
+      --color-on-primary: #ffffff;
+      --color-secondary: #1e293b;
+      --color-border: #334155;
+      --color-border-subtle: #1e293b;
+      --color-foreground: #f8fafc;
+      --color-muted: #64748b;
+      --color-muted-light: #94a3b8;
+      --color-accent: #38bdf8;
+      --color-success: #22c55e;
+      --color-warning: #f59e0b;
+      --color-destructive: #ef4444;
+      --color-ring: #22c55e;
+      --font-mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--color-background);
+      color: var(--color-foreground);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.5;
+      min-height: 100vh;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Container */
+    .app-container {
+      width: 100%;
+      max-width: 1040px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* Top Prototype Control Panel (Explicitly distinguished from Terminal) */
+    .prototype-panel {
+      background: #0a0f1d;
+      border: 1px solid #27354a;
+      border-radius: 6px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    }
+
+    .prototype-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px dashed #27354a;
+      padding-bottom: 8px;
+    }
+
+    .prototype-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: #1e293b;
+      color: #38bdf8;
+      border: 1px solid #334155;
+    }
+
+    .prototype-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #f8fafc;
+    }
+
+    .prototype-subtext {
+      font-size: 12px;
+      color: var(--color-muted-light);
+    }
+
+    .controls-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .group-label {
+      font-size: 11px;
+      color: var(--color-muted-light);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-right: 2px;
+    }
+
+    /* Interactive Buttons */
+    .proto-btn {
+      appearance: none;
+      border: 1px solid var(--color-border);
+      background-color: var(--color-secondary);
+      color: var(--color-foreground);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 500;
+      padding: 6px 11px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background-color 150ms ease, border-color 150ms ease, transform 100ms ease;
+    }
+
+    .proto-btn:hover {
+      background-color: #2b3952;
+      border-color: #475569;
+    }
+
+    .proto-btn:focus-visible {
+      outline: 2px solid var(--color-ring);
+      outline-offset: 2px;
+    }
+
+    .proto-btn:active {
+      transform: scale(0.98);
+    }
+
+    .proto-btn.active {
+      background-color: #1e3a5f;
+      border-color: #38bdf8;
+      color: #ffffff;
+      box-shadow: 0 0 0 1px #38bdf8;
+    }
+
+    .proto-btn.btn-accent {
+      background-color: #132e22;
+      border-color: #22c55e;
+      color: #4ade80;
+    }
+
+    .proto-btn.btn-accent:hover {
+      background-color: #194030;
+    }
+
+    .proto-btn.btn-warning {
+      background-color: #38250c;
+      border-color: #f59e0b;
+      color: #fbbf24;
+    }
+
+    .proto-btn.btn-warning:hover {
+      background-color: #4a3212;
+    }
+
+    /* Scenario explanation callout */
+    .scenario-info {
+      background: #0d1527;
+      border-left: 3px solid #38bdf8;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: #cbd5e1;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .scenario-info strong {
+      color: #f8fafc;
+    }
+
+    /* Terminal Simulator Window */
+    .terminal-window {
+      background-color: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+      display: flex;
+      flex-direction: column;
+      transition: max-width 200ms ease;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* Width simulation classes */
+    .terminal-window.width-80 {
+      max-width: 84ch; /* Exactly matches ~80-82 monospace terminal columns */
+    }
+
+    .terminal-window.width-40 {
+      max-width: 42ch; /* Exactly matches ~40-42 monospace terminal columns */
+    }
+
+    .terminal-titlebar {
+      background-color: #0d1322;
+      border-bottom: 1px solid var(--color-border);
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      user-select: none;
+    }
+
+    .window-controls {
+      display: flex;
+      gap: 6px;
+    }
+
+    .win-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .win-dot.close { background: #ef4444; }
+    .win-dot.min { background: #f59e0b; }
+    .win-dot.max { background: #22c55e; }
+
+    .window-title {
+      font-size: 11px;
+      color: var(--color-muted-light);
+      letter-spacing: 0.3px;
+    }
+
+    .window-dim {
+      font-size: 11px;
+      color: var(--color-muted);
+    }
+
+    /* Terminal Content Canvas */
+    .terminal-content {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 480px;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    /* Transcript (Chat & Command history) */
+    .transcript-area {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      color: #94a3b8;
+      overflow-y: auto;
+      max-height: 240px;
+      padding-right: 4px;
+    }
+
+    .transcript-row {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .t-user-prompt {
+      color: #f8fafc;
+      font-weight: 500;
+    }
+
+    .t-user-prompt span.prompt-symbol {
+      color: #38bdf8;
+      margin-right: 6px;
+    }
+
+    .t-agent-msg {
+      color: #cbd5e1;
+    }
+
+    .t-agent-msg span.bot-name {
+      color: #a855f7;
+      font-weight: 600;
+      margin-right: 6px;
+    }
+
+    .t-sublog {
+      color: #64748b;
+      font-size: 12px;
+      padding-left: 12px;
+      border-left: 2px solid #1e293b;
+    }
+
+    /* ------------------------------------------------------------------------- */
+    /* FLEET ACTIVITY WIDGET (The Core Design Assignment)                        */
+    /* ------------------------------------------------------------------------- */
+    .fleet-widget-container {
+      margin-top: auto; /* Pushed directly above the editor */
+      display: flex;
+      flex-direction: column;
+      background-color: #070a14;
+      border-radius: 4px;
+      transition: all 180ms ease;
+    }
+
+    .fleet-widget-container.unmounted {
+      display: none;
+    }
+
+    .widget-unmounted-banner {
+      display: none;
+      padding: 8px 12px;
+      background: #08111e;
+      border: 1px dashed #1e3a5f;
+      border-radius: 4px;
+      color: #64748b;
+      font-size: 12px;
+      text-align: center;
+      margin-top: auto;
+    }
+
+    .widget-unmounted-banner.active {
+      display: block;
+    }
+
+    /* Modern Compact Header: 1 clean divider rule with live summary */
+    .widget-header-line {
+      display: flex;
+      align-items: center;
+      color: #475569;
+      font-weight: 500;
+      font-size: 12px;
+      padding: 3px 0 5px 0;
+      white-space: pre;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .widget-header-line .header-rule {
+      flex: 1;
+      overflow: hidden;
+      white-space: nowrap;
+      color: #334155;
+    }
+
+    .widget-header-line .header-badge {
+      color: #e2e8f0;
+      font-weight: 600;
+      padding: 0 4px;
+    }
+
+    .widget-header-line .header-summary {
+      color: #94a3b8;
+      padding: 0 4px;
+    }
+
+    .widget-header-line .header-help {
+      color: #64748b;
+      padding-left: 4px;
+    }
+
+    /* Task Rows */
+    .widget-rows-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 2px 0 6px 0;
+    }
+
+    .widget-row {
+      display: flex;
+      align-items: center;
+      font-size: 12.5px;
+      white-space: pre;
+      line-height: 1.4;
+      font-family: var(--font-mono);
+      padding: 1px 4px;
+      border-radius: 2px;
+    }
+
+    .widget-row:hover {
+      background-color: rgba(255, 255, 255, 0.03);
+    }
+
+    /* Terminal Mark (Single-column width strictly preserved) */
+    .t-mark {
+      display: inline-block;
+      width: 2ch;
+      font-weight: 700;
+      text-align: left;
+    }
+
+    .t-mark.running { color: var(--color-accent); }
+    .t-mark.blocked { color: var(--color-warning); }
+    .t-mark.done { color: var(--color-success); }
+    .t-mark.failed { color: var(--color-destructive); }
+    .t-mark.timeout { color: var(--color-destructive); }
+    .t-mark.closed { color: var(--color-muted); }
+
+    /* Label */
+    .t-label {
+      color: #f1f5f9;
+      font-weight: 500;
+    }
+
+    .t-label.muted {
+      color: var(--color-muted-light);
+    }
+
+    /* Agent Definition / Role */
+    .t-def {
+      color: var(--color-muted);
+      margin-left: 1ch;
+    }
+
+    /* Duration */
+    .t-dur {
+      color: #94a3b8;
+      text-align: right;
+      margin-left: 1ch;
+    }
+
+    /* Specific Status Description (Chinese explanatory labels, not generic result) */
+    .t-status {
+      margin-left: 1.5ch;
+      font-size: 12px;
+    }
+
+    .t-status.running {
+      color: #38bdf8;
+    }
+
+    .t-status.blocked {
+      color: #fbbf24;
+      font-weight: 600;
+    }
+
+    .t-status.done {
+      color: #4ade80;
+    }
+
+    .t-status.decay {
+      color: #64748b;
+      font-size: 11px;
+    }
+
+    .t-status.failed {
+      color: #f87171;
+      font-weight: 600;
+    }
+
+    .t-status.timeout {
+      color: #f87171;
+    }
+
+    .t-overflow-row {
+      color: var(--color-muted-light);
+      font-size: 12px;
+      padding: 2px 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .t-overflow-link {
+      color: #38bdf8;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
+    /* ------------------------------------------------------------------------- */
+    /* PI EDITOR PROMPT (Directly below the Fleet Activity Widget)                */
+    /* ------------------------------------------------------------------------- */
+    .editor-section {
+      background-color: #0b1120;
+      border: 1px solid var(--color-secondary);
+      border-radius: 4px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .editor-input-line {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #f8fafc;
+    }
+
+    .editor-prompt-symbol {
+      color: #22c55e;
+      font-weight: 700;
+    }
+
+    .editor-cursor {
+      display: inline-block;
+      width: 8px;
+      height: 15px;
+      background: #22c55e;
+      vertical-align: middle;
+      animation: blink 1.2s infinite;
+    }
+
+    @keyframes blink {
+      0%, 49% { opacity: 1; }
+      50%, 100% { opacity: 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .editor-cursor {
+        animation: none;
+        opacity: 0.8;
+      }
+      .proto-btn {
+        transition: none;
+      }
+    }
+
+    .editor-footer-hints {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #64748b;
+      font-size: 11px;
+      border-top: 1px solid #162032;
+      padding-top: 4px;
+    }
+
+    .editor-status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #64748b;
+      padding: 0 4px;
+    }
+
+    .status-left {
+      color: #94a3b8;
+    }
+
+    .status-right {
+      color: #64748b;
+    }
+
+    /* ------------------------------------------------------------------------- */
+    /* /herd HISTORY MODAL / DETAIL DRAWER                                      */
+    /* ------------------------------------------------------------------------- */
+    .history-drawer {
+      display: none;
+      background: #090e1d;
+      border: 1px solid #38bdf8;
+      border-radius: 6px;
+      padding: 12px;
+      margin-top: 8px;
+    }
+
+    .history-drawer.open {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .history-drawer-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #1e293b;
+      padding-bottom: 6px;
+    }
+
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11.5px;
+      color: #cbd5e1;
+    }
+
+    .history-table th {
+      text-align: left;
+      padding: 4px 6px;
+      color: #94a3b8;
+      border-bottom: 1px solid #1e293b;
+      font-weight: 600;
+    }
+
+    .history-table td {
+      padding: 4px 6px;
+      border-bottom: 1px solid #141f33;
+    }
+
+    /* Footer note */
+    .doc-link-note {
+      font-size: 12px;
+      color: #64748b;
+      text-align: center;
+      margin-top: 8px;
+    }
+
+    .doc-link-note a {
+      color: #38bdf8;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-container">
+
+  <!-- ======================================================================= -->
+  <!-- PROTOTYPE TEST HARNESS & CONTROL PANEL                                  -->
+  <!-- ======================================================================= -->
+  <aside class="prototype-panel" aria-label="原型交互测试控制台">
+    <div class="prototype-header">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span class="prototype-badge">PROTOTYPE CONTROLS · 交互演示控制台</span>
+        <span class="prototype-title">pi-herd 终端子任务挂件 (Terminal Activity Widget)</span>
+      </div>
+      <span class="prototype-subtext">⚠️ 此面板仅为原型测试辅助控制器，非实际终端操作按键</span>
+    </div>
+
+    <!-- Scenarios -->
+    <div class="controls-grid">
+      <span class="group-label">交互场景：</span>
+      <button type="button" class="proto-btn active" id="btn-scene-mixed" onclick="setScenario('mixed')">
+        1. 混杂状态 (运行+待决+刚完成)
+      </button>
+      <button type="button" class="proto-btn" id="btn-scene-error" onclick="setScenario('error')">
+        2. 告警/异常 (失败+超时+阻塞)
+      </button>
+      <button type="button" class="proto-btn" id="btn-scene-alldone" onclick="setScenario('alldone')">
+        3. 全量刚完成 (30s 倒计时)
+      </button>
+      <button type="button" class="proto-btn" id="btn-scene-idle" onclick="setScenario('idle')">
+        4. 30秒后/空闲态 (挂件自动卸载)
+      </button>
+      <button type="button" class="proto-btn btn-accent" id="btn-scene-history" onclick="toggleHistory()">
+        5. 历史总览 (模拟 /herd)
+      </button>
+    </div>
+
+    <!-- Width and Lifecycle interactive modifiers -->
+    <div class="controls-grid" style="border-top: 1px dashed #1e293b; padding-top: 8px;">
+      <div class="control-group">
+        <span class="group-label">视图宽度：</span>
+        <button type="button" class="proto-btn" id="btn-width-toggle" onclick="toggleWidth()">
+          切换为窄屏 (40 列 Narrow)
+        </button>
+      </div>
+
+      <div class="control-group" style="margin-left: auto;">
+        <span class="group-label">生命周期交互：</span>
+        <button type="button" class="proto-btn btn-warning" onclick="stepTime(10)" title="模拟时间推移 10 秒，观察已完成任务倒计时与 30s 自动注销">
+          步进时间 (+10s 衰减)
+        </button>
+        <button type="button" class="proto-btn" onclick="simulateReload()" title="模拟重启 Pi 会话：已完成任务不会死灰复燃，仅恢复未决或活跃状态">
+          模拟会话重载 (Reload)
+        </button>
+      </div>
+    </div>
+
+    <!-- Dynamic scenario explanation text -->
+    <div class="scenario-info" id="scenario-explanation">
+      <strong>当前演示场景：1. 混杂状态 (Mixed Running + Blocked + Just Completed)</strong>
+      <span>展示紧凑单行分界表头、单列宽盲文/ASCII 符号、优先级排序（运行/待决置顶）、具体状态描述（非泛化 result）。已完成任务仅保留 30 秒。</span>
+    </div>
+  </aside>
+
+  <!-- ======================================================================= -->
+  <!-- REALISTIC TERMINAL SIMULATION CONTAINER                                 -->
+  <!-- ======================================================================= -->
+  <main class="terminal-window width-80" id="terminal-sim" aria-label="模拟终端视口">
+    <!-- Window Bar -->
+    <div class="terminal-titlebar">
+      <div class="window-controls" aria-hidden="true">
+        <span class="win-dot close"></span>
+        <span class="win-dot min"></span>
+        <span class="win-dot max"></span>
+      </div>
+      <div class="window-title">pi@dev-box: ~/projects/pi-herd (session: s_8a2f)</div>
+      <div class="window-dim" id="col-indicator">80 cols (Wide)</div>
+    </div>
+
+    <!-- Inner Terminal Screen -->
+    <div class="terminal-content">
+      
+      <!-- 1. Context Transcript Area -->
+      <section class="transcript-area" id="terminal-transcript" aria-label="终端对话上下文">
+        <div class="transcript-row">
+          <div class="t-user-prompt"><span class="prompt-symbol">❯</span>pi 派发子 agent 审核代码库重命名与测试套件</div>
+        </div>
+        <div class="transcript-row">
+          <div class="t-agent-msg"><span class="bot-name">pi</span>已调用 herd_spawn 委派子任务。主 agent 继续就绪，子任务状态将通过上方活动条与 /herd 实时呈现：</div>
+          <div class="t-sublog">
+            [herd_spawn] label: download-tests · def: scout · async: true<br>
+            [herd_spawn] label: schema-sync · def: worker · async: true<br>
+            [herd_spawn] label: git-rename · def: scout · async: true
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. FLEET ACTIVITY WIDGET (aboveEditor Placement) -->
+      <!-- In Scenario 4 / idle, this collapses and unmounts, consuming ZERO lines -->
+      <section class="fleet-widget-container" id="fleet-widget" aria-label="pi-herd 子任务活动挂件">
+        <!-- Rendered dynamically by JavaScript -->
+      </section>
+
+      <!-- Unmounted indicator (shown when widget is completely unmounted) -->
+      <div class="widget-unmounted-banner" id="unmounted-banner">
+        [ FleetView 已自动卸载 · 活跃队列为空 · 释放 0 行垂直终端开销 ]
+      </div>
+
+      <!-- 3. Pi Input Editor Area -->
+      <footer class="editor-section" aria-label="Pi 终端输入行">
+        <div class="editor-input-line">
+          <span class="editor-prompt-symbol">❯</span>
+          <span style="color: #64748b;">输入任务指令或委派新 Agent...</span>
+          <span class="editor-cursor" aria-hidden="true"></span>
+        </div>
+        <div class="editor-footer-hints">
+          <span>[Tab] 补全  [Enter] 执行  [/herd] 完整诊断表</span>
+          <span id="editor-status-text">herd 1↑ 1? 1✓ · main · gpt-6.1-sol (high)</span>
+        </div>
+      </footer>
+
+      <!-- 4. /herd Detail Overlay / Drawer -->
+      <div class="history-drawer" id="history-drawer" aria-label="/herd 详细历史审计">
+        <div class="history-drawer-header">
+          <span style="color: #38bdf8; font-weight: 600;">/herd 会话子任务全量历史审计 (session s_8a2f)</span>
+          <button type="button" class="proto-btn" style="padding: 2px 8px; font-size: 11px;" onclick="toggleHistory()">关闭 [Esc]</button>
+        </div>
+        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">
+          * 说明：活动挂件中退场的已完成任务在此永久保留，元数据与产出文件永不丢失。
+        </div>
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>标识 (Label)</th>
+              <th>定义 (Def)</th>
+              <th>磁盘状态</th>
+              <th>Herdr 状态</th>
+              <th>产出路径 (Result)</th>
+              <th>耗时</th>
+              <th>终端退出说明</th>
+            </tr>
+          </thead>
+          <tbody id="history-table-body">
+            <!-- Dynamically populated -->
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </main>
+
+  <p class="doc-link-note">
+    设计详细规范与 ANSI 排版字符定义见 <a href="PROPOSAL.md">PROPOSAL.md</a> · 遵循 Dark Mode (OLED) 与纯单宽字符无依赖规范
+  </p>
+
+</div>
+
+<!-- ========================================================================= -->
+<!-- JAVASCRIPT LOGIC (Interactive Prototype)                                  -->
+<!-- ========================================================================= -->
+<script>
+  // State definitions
+  let currentWidth = 80; // 80 or 40
+  let currentScenario = 'mixed'; // 'mixed' | 'error' | 'alldone' | 'idle'
+  let isHistoryOpen = false;
+
+  // Task datasets for each scenario
+  // Mark rules: Strictly 1 column width (braille or ASCII only)
+  // Durations & specific status descriptions (Chinese explanatory labels)
+  const SCENARIOS = {
+    mixed: [
+      { mark: '⠏', state: 'running', label: 'download-tests', def: 'scout', dur: '12s', status: '运行中', detail: '抓取测试用例' },
+      { mark: '?', state: 'blocked', label: 'schema-sync', def: 'worker', dur: '1m05s', status: '提问待答 ASK', detail: '等待 owner 决策' },
+      { mark: '+', state: 'done', label: 'git-rename', def: 'scout', dur: '4s', status: '产出就绪', decay: 24, detail: '重构文件清单就绪' },
+      { mark: '⠏', state: 'running', label: 'build-api', def: 'worker', dur: '35s', status: '运行中', detail: '生成路由绑定' },
+      { mark: '+', state: 'done', label: 'git-untracked', def: 'scout', dur: '6s', status: '产出就绪', decay: 16, detail: '生成未跟踪文件树' },
+      { mark: '+', state: 'done', label: 'theme-contrast', def: 'scout', dur: '15s', status: '产出就绪', decay: 8, detail: '对比度审计' },
+    ],
+    error: [
+      { mark: '?', state: 'blocked', label: 'schema-sync', def: 'worker', dur: '2m10s', status: '提问待答 ASK', detail: 'ask.json 待确认迁移策略' },
+      { mark: '!', state: 'timeout', label: 'sftp-image', def: 'scout', dur: '5m00s', status: '超时中断 5m', detail: '网络端点无响应' },
+      { mark: 'x', state: 'failed', label: 'terminal-color', def: 'scout', dur: '18s', status: '异常退出', detail: 'exitCode 1: 未知色系' },
+      { mark: '!', state: 'no_result', label: 'theme-contrast', def: 'scout', dur: '32s', status: '无产出退出', detail: 'result.md 为空' },
+    ],
+    alldone: [
+      { mark: '+', state: 'done', label: 'download-tests', def: 'scout', dur: '12s', status: '产出就绪', decay: 28, detail: '测试包已拉取' },
+      { mark: '+', state: 'done', label: 'git-rename', def: 'scout', dur: '4s', status: '产出就绪', decay: 24, detail: '已验证重命名' },
+      { mark: '+', state: 'done', label: 'git-untracked', def: 'scout', dur: '5s', status: '产出就绪', decay: 20, detail: '清单生成完毕' },
+      { mark: '+', state: 'done', label: 'sftp-image', def: 'scout', dur: '22s', status: '产出就绪', decay: 15, detail: '静态资源上传就绪' },
+      { mark: '+', state: 'done', label: 'terminal-color', def: 'scout', dur: '8s', status: '产出就绪', decay: 10, detail: '色卡校验通过' },
+      { mark: '+', state: 'done', label: 'theme-contrast', def: 'scout', dur: '15s', status: '产出就绪', decay: 5, detail: '对比度符合 WCAG' },
+    ],
+    idle: []
+  };
+
+  // Clone current active tasks
+  let activeTasks = JSON.parse(JSON.stringify(SCENARIOS.mixed));
+
+  // Scenario descriptions
+  const SCENARIO_EXPLANATIONS = {
+    mixed: {
+      title: '1. 混杂状态 (Mixed Running + Blocked + Just Completed)',
+      text: '优先级排序生效：运行中 (running) 与待决策 (blocked/ASK) 自动优先置顶；刚完成的任务带倒计时留存提示 (上限30秒)；最多显示 5 行活跃项，超出项优雅聚合到 /herd。'
+    },
+    error: {
+      title: '2. 告警与异常状态 (Attention / Error States)',
+      text: '明确状态语义：摒弃无意义的 generic result 占位符，明确区分「提问待答 ASK」「超时中断」「异常退出」「无产出退出」。错误与阻塞任务不会被 30s 自动注销，持久保持警示直至人工介入。'
+    },
+    alldone: {
+      title: '3. 全量刚完成状态 (All Completed Just Now)',
+      text: '对标原版 6 个任务常驻的场景：当前 6 个任务刚完成，每个任务标注倒计时（如 余 28s）。在留存期内通知用户产出就绪；30 秒后将自动隐退，彻底杜绝老旧完成项霸占终端屏幕。'
+    },
+    idle: {
+      title: '4. 30秒后 / 空闲态 (After 30s / Idle - Auto Unmounted)',
+      text: '30 秒留存期结束或活跃队列为空：Widget 彻底注销（Unmount），垂直占用高度直降为 0 行，将所有屏幕空间交还给编辑器与上下文。实现 VS Code 式无干扰体验。'
+    },
+    history: {
+      title: '5. /herd 历史总览诊断表 (Simulated /herd Detail)',
+      text: '挂件注销不等于数据删除：磁盘 meta.json、result.md、ask.json 永远保留。随时输入 /herd 或通过工具可调出完整会话账本与排障信息。'
+    }
+  };
+
+  // Full session history ledger (for /herd)
+  const FULL_HISTORY_RECORDS = [
+    { label: 'download-tests', def: 'scout', disk: 'done', herdr: 'gone', res: 'runs/s_8a2f/download-tests/result.md', dur: '12s', exit: '0 (auto-closed)' },
+    { label: 'git-rename', def: 'scout', disk: 'done', herdr: 'gone', res: 'runs/s_8a2f/git-rename/result.md', dur: '4s', exit: '0 (auto-closed)' },
+    { label: 'git-untracked', def: 'scout', disk: 'done', herdr: 'gone', res: 'runs/s_8a2f/git-untracked/result.md', dur: '5s', exit: '0 (auto-closed)' },
+    { label: 'sftp-image', def: 'scout', disk: 'timeout', herdr: 'gone', res: 'none', dur: '5m00s', exit: 'timedOut (killed)' },
+    { label: 'terminal-color', def: 'scout', disk: 'failed', herdr: 'gone', res: 'runs/s_8a2f/terminal-color/result.md', dur: '18s', exit: 'exitCode:1 (killed)' },
+    { label: 'theme-contrast', def: 'scout', disk: 'no_result', herdr: 'gone', res: 'none', dur: '32s', exit: 'empty_result (auto-closed)' },
+    { label: 'schema-sync', def: 'worker', disk: 'blocked', herdr: 'blocked', res: 'none', dur: '1m05s', exit: 'waiting owner answer' },
+    { label: 'build-api', def: 'worker', disk: 'running', herdr: 'working', res: 'pending', dur: '35s', exit: 'running' }
+  ];
+
+  // Render widget content
+  function renderWidget() {
+    const container = document.getElementById('fleet-widget');
+    const unmountedBanner = document.getElementById('unmounted-banner');
+    const editorStatus = document.getElementById('editor-status-text');
+
+    // Filter out decayed tasks (> 30s)
+    const validTasks = activeTasks.filter(t => {
+      if (t.state === 'done') {
+        return (t.decay === undefined || t.decay > 0);
+      }
+      return true;
+    });
+
+    // Counts for header summary
+    let running = validTasks.filter(t => t.state === 'running').length;
+    let blocked = validTasks.filter(t => t.state === 'blocked').length;
+    let done = validTasks.filter(t => t.state === 'done').length;
+    let failed = validTasks.filter(t => t.state === 'failed' || t.state === 'timeout' || t.state === 'no_result').length;
+
+    // Update editor status line
+    const blockedStr = blocked > 0 ? ` ${blocked}?` : '';
+    const failedStr = failed > 0 ? ` ${failed}!` : '';
+    editorStatus.textContent = `herd ${running}↑${blockedStr}${failedStr} ${done}✓ · main · gpt-6.1-sol (high)`;
+
+    // Auto-unmount if no active or valid tasks
+    if (validTasks.length === 0) {
+      container.classList.add('unmounted');
+      container.innerHTML = '';
+      unmountedBanner.classList.add('active');
+      return;
+    }
+
+    container.classList.remove('unmounted');
+    unmountedBanner.classList.remove('active');
+
+    // Sort order: running (0) > blocked (1) > failed (2) > done (3)
+    const rank = (t) => ['blocked','failed','timeout','no_result'].includes(t.state) ? 0 : t.state === 'running' ? 1 : 2;
+    validTasks.sort((a, b) => rank(a) - rank(b));
+
+    // Limit to max 5 displayed rows
+    const MAX_ROWS = 5;
+    const displayRows = validTasks.slice(0, MAX_ROWS);
+    const overflowCount = validTasks.length - MAX_ROWS;
+
+    // Build Header Line
+    let headerHTML = '';
+    if (currentWidth === 80) {
+      // 80 columns header
+      let summaryParts = [];
+      if (running > 0) summaryParts.push(`${running} 运行`);
+      if (blocked > 0) summaryParts.push(`${blocked} 待决`);
+      if (failed > 0) summaryParts.push(`${failed} 异常`);
+      if (done > 0) summaryParts.push(`${done} 完成`);
+      const summaryText = summaryParts.join(' · ');
+
+      headerHTML = `
+        <div class="widget-header-line">
+          <span style="color:#334155;">──</span>
+          <span class="header-badge">子任务 pi-herd</span>
+          <span style="color:#334155;">·</span>
+          <span class="header-summary">${summaryText}</span>
+          <span class="header-rule">────────────────────────────────────────────────────────────────────────</span>
+          <span class="header-help">/herd 详情 ──</span>
+        </div>
+      `;
+    } else {
+      // 40 columns narrow header
+      let summaryCompact = [];
+      if (running > 0) summaryCompact.push(`${running}运行`);
+      if (blocked > 0) summaryCompact.push(`${blocked}待决`);
+      if (failed > 0) summaryCompact.push(`${failed}异常`);
+      if (done > 0) summaryCompact.push(`${done}完成`);
+      const summaryText = summaryCompact.slice(0, 2).join(' ');
+
+      headerHTML = `
+        <div class="widget-header-line">
+          <span style="color:#334155;">─</span>
+          <span class="header-badge">子任务</span>
+          <span style="color:#334155;">·</span>
+          <span class="header-summary">${summaryText}</span>
+          <span class="header-rule">────────────────────────</span>
+          <span class="header-help">/herd ─</span>
+        </div>
+      `;
+    }
+
+    // Build Row Items
+    let rowsHTML = '<div class="widget-rows-list">';
+    displayRows.forEach(row => {
+      let markClass = row.state;
+      let labelClass = (row.state === 'closed') ? 't-label muted' : 't-label';
+
+      // Width formatting adjustments
+      let formattedLabel = row.label;
+      let formattedDef = row.def;
+      let formattedDur = row.dur;
+      let formattedStatus = row.status;
+
+      if (currentWidth === 80) {
+        // Wide formatting
+        formattedLabel = formattedLabel.padEnd(16).slice(0, 16);
+        formattedDef = formattedDef.padEnd(8).slice(0, 8);
+        formattedDur = formattedDur.padStart(6).slice(-6);
+        
+        let decayBadge = '';
+        if (row.state === 'done' && row.decay !== undefined) {
+          decayBadge = ` <span class="t-status decay">(余${row.decay}s)</span>`;
+        }
+
+        rowsHTML += `
+          <div class="widget-row">
+            <span class="t-mark ${markClass}">${row.mark}</span>
+            <span class="${labelClass}">${escapeHtml(formattedLabel)}</span>
+            <span class="t-def">${escapeHtml(formattedDef)}</span>
+            <span class="t-dur">${escapeHtml(formattedDur)}</span>
+            <span class="t-status ${row.state}">${escapeHtml(formattedStatus)}${decayBadge}</span>
+          </div>
+        `;
+      } else {
+        // Narrow 40-col formatting
+        // Shorten label if needed
+        let shortLabel = row.label.length > 10 ? row.label.slice(0, 9) + '..' : row.label;
+        shortLabel = shortLabel.padEnd(11).slice(0, 11);
+        formattedDef = row.def.slice(0, 6).padEnd(6);
+        formattedDur = formattedDur.padStart(4).slice(-4);
+        
+        // Compact status description
+        let shortStatus = row.status;
+        if (row.state === 'done' && row.decay !== undefined) {
+          shortStatus = `就绪(${row.decay}s)`;
+        } else if (row.state === 'blocked') {
+          shortStatus = '待答 ASK';
+        } else if (row.status.length > 5) {
+          shortStatus = row.status.slice(0, 5);
+        }
+
+        rowsHTML += `
+          <div class="widget-row">
+            <span class="t-mark ${markClass}">${row.mark}</span>
+            <span class="${labelClass}">${escapeHtml(shortLabel)}</span>
+            <span class="t-def">${escapeHtml(formattedDef)}</span>
+            <span class="t-dur">${escapeHtml(formattedDur)}</span>
+            <span class="t-status ${row.state}" style="margin-left: 1ch;">${escapeHtml(shortStatus)}</span>
+          </div>
+        `;
+      }
+    });
+
+    // Overflow line if active rows exceed MAX_ROWS
+    if (overflowCount > 0) {
+      if (currentWidth === 80) {
+        rowsHTML += `
+          <div class="t-overflow-row">
+            <span style="color: #64748b; width: 2ch;">···</span>
+            <span style="color: #94a3b8;">还有 ${overflowCount} 个任务</span>
+            <span class="t-overflow-link" onclick="toggleHistory()">(输入 /herd 查看全部)</span>
+          </div>
+        `;
+      } else {
+        rowsHTML += `
+          <div class="t-overflow-row">
+            <span style="color: #64748b; width: 2ch;">···</span>
+            <span style="color: #94a3b8;">+${overflowCount} 更多</span>
+            <span class="t-overflow-link" onclick="toggleHistory()">(/herd)</span>
+          </div>
+        `;
+      }
+    }
+
+    rowsHTML += '</div>';
+
+    container.innerHTML = headerHTML + rowsHTML;
+  }
+
+  // Switch Scenario
+  function setScenario(sceneKey) {
+    currentScenario = sceneKey;
+    activeTasks = JSON.parse(JSON.stringify(SCENARIOS[sceneKey]));
+
+    // Update active button state
+    ['mixed', 'error', 'alldone', 'idle'].forEach(key => {
+      const btn = document.getElementById(`btn-scene-${key}`);
+      if (btn) btn.classList.toggle('active', key === sceneKey);
+    });
+
+    // Update scenario description banner
+    const info = SCENARIO_EXPLANATIONS[sceneKey];
+    if (info) {
+      document.getElementById('scenario-explanation').innerHTML = `
+        <strong>当前演示场景：${info.title}</strong>
+        <span>${info.text}</span>
+      `;
+    }
+
+    // Close history drawer if open
+    if (isHistoryOpen) {
+      toggleHistory();
+    }
+
+    renderWidget();
+  }
+
+  // Toggle Width between 80 cols and 40 cols
+  function toggleWidth() {
+    const sim = document.getElementById('terminal-sim');
+    const colIndicator = document.getElementById('col-indicator');
+    const widthBtn = document.getElementById('btn-width-toggle');
+
+    if (currentWidth === 80) {
+      currentWidth = 40;
+      sim.classList.remove('width-80');
+      sim.classList.add('width-40');
+      colIndicator.textContent = '40 cols (Narrow)';
+      widthBtn.textContent = '切换为宽屏 (80 列 Wide)';
+      widthBtn.classList.add('active');
+    } else {
+      currentWidth = 80;
+      sim.classList.remove('width-40');
+      sim.classList.add('width-80');
+      colIndicator.textContent = '80 cols (Wide)';
+      widthBtn.textContent = '切换为窄屏 (40 列 Narrow)';
+      widthBtn.classList.remove('active');
+    }
+
+    renderWidget();
+  }
+
+  // Time step for decay simulation (subtract seconds from completed tasks)
+  function stepTime(seconds) {
+    let changed = false;
+    activeTasks.forEach(task => {
+      if (task.state === 'done' && task.decay !== undefined) {
+        task.decay = Math.max(0, task.decay - seconds);
+        changed = true;
+      }
+    });
+
+    // If all tasks reached 0 decay in alldone scenario, notify user
+    const remainingDone = activeTasks.filter(t => t.state === 'done' && (t.decay > 0 || t.decay === undefined)).length;
+    const runningOrBlocked = activeTasks.filter(t => t.state === 'running' || t.state === 'blocked' || t.state === 'failed' || t.state === 'timeout').length;
+
+    renderWidget();
+
+    if (changed) {
+      const info = document.getElementById('scenario-explanation');
+      if (runningOrBlocked === 0 && remainingDone === 0) {
+        info.innerHTML = `
+          <strong>⏱️ 时间推移已达 30 秒阈值：已完成任务已全部注销退出！</strong>
+          <span>活跃队列已清空，FleetView 自动 unmount 卸载，释放全部终端高度。可通过 [/herd] 再次调出历史记录。</span>
+        `;
+      } else {
+        info.innerHTML = `
+          <strong>⏱️ 时间已步进 +${seconds}s：</strong>
+          <span>已完成任务剩余留存倒计时减少；当余量降为 0s 时将自动退出活动条。</span>
+        `;
+      }
+    }
+  }
+
+  // Simulate Session Reload
+  // Key behavior: finished tasks do NOT reappear upon reload! Only unresolved/blocked tasks load.
+  function simulateReload() {
+    // Keep only non-done and non-closed tasks
+    activeTasks = activeTasks.filter(t => t.state !== 'closed' && (t.state !== 'done' || t.decay > 0));
+    renderWidget();
+
+    const info = document.getElementById('scenario-explanation');
+    info.innerHTML = `
+      <strong>🔄 会话已重载 (Session Reloaded)：</strong>
+      <span>根据设计生命周期规范，会话重新加载时旧的已完成任务<strong>不会死灰复燃</strong>，主挂件恢复待决/运行任务，刚完成但未满 30 秒的任务保留原剩余时间，不重新计时。历史记录依然保存在磁盘并在 /herd 中可查。</span>
+    `;
+  }
+
+  // Toggle History View (/herd detail)
+  function toggleHistory() {
+    isHistoryOpen = !isHistoryOpen;
+    const drawer = document.getElementById('history-drawer');
+    drawer.classList.toggle('open', isHistoryOpen);
+
+    const histBtn = document.getElementById('btn-scene-history');
+    if (histBtn) histBtn.classList.toggle('active', isHistoryOpen);
+
+    if (isHistoryOpen) {
+      renderHistoryTable();
+      drawer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+
+  function renderHistoryTable() {
+    const tbody = document.getElementById('history-table-body');
+    tbody.innerHTML = '';
+
+    FULL_HISTORY_RECORDS.forEach(rec => {
+      const tr = document.createElement('tr');
+      let statusColor = '#94a3b8';
+      if (rec.disk === 'done') statusColor = '#4ade80';
+      else if (rec.disk === 'running') statusColor = '#38bdf8';
+      else if (rec.disk === 'blocked') statusColor = '#fbbf24';
+      else if (rec.disk === 'failed' || rec.disk === 'timeout') statusColor = '#f87171';
+
+      tr.innerHTML = `
+        <td style="font-weight:600; color:#f8fafc;">${escapeHtml(rec.label)}</td>
+        <td style="color:#94a3b8;">${escapeHtml(rec.def)}</td>
+        <td style="color:${statusColor}; font-weight:600;">${escapeHtml(rec.disk)}</td>
+        <td style="color:#cbd5e1;">${escapeHtml(rec.herdr)}</td>
+        <td style="color:#64748b; font-family:var(--font-mono); font-size:11px;">${escapeHtml(rec.res)}</td>
+        <td style="color:#94a3b8;">${escapeHtml(rec.dur)}</td>
+        <td style="color:#e2e8f0;">${escapeHtml(rec.exit)}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // Keyboard navigation support
+  window.addEventListener('keydown', (e) => {
+    // 1-4: Switch scenarios
+    if (e.key === '1') setScenario('mixed');
+    if (e.key === '2') setScenario('error');
+    if (e.key === '3') setScenario('alldone');
+    if (e.key === '4') setScenario('idle');
+    if (e.key === '5' || e.key === 'h' || e.key === 'H') toggleHistory();
+    if (e.key === 'w' || e.key === 'W') toggleWidth();
+    if (e.key === 'r' || e.key === 'R') simulateReload();
+    if (e.key === 'Escape' && isHistoryOpen) toggleHistory();
+  });
+
+  // Helper escape
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // Initial render
+  renderWidget();
+</script>
+
+</body>
+</html>

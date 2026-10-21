@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';
+import {navigate,resize,evaluate,screenshot,key,close} from './browser-preview.mjs';
+const e=evaluate;
+const search=async text=>{await e(`document.getElementById('paletteSearchInput').value=${JSON.stringify(text)};document.getElementById('paletteSearchInput').dispatchEvent(new Event('input',{bubbles:true}));`);};
+try {
+ await resize(1440,1000);await navigate('http://127.0.0.1:8765/prototype-v2.html');
+ assert.equal(await e('state.activeTab'),'main');
+ await e("document.getElementById('editorInput').focus();openPalette()");
+ await new Promise(r=>setTimeout(r,80));
+ await search('jev');await key('Enter');
+ assert.equal(await e('state.activeTab'),'agents');
+ assert.equal(await e('state.focusedPaneId'),'pane-jev');
+ assert.equal(await e('document.activeElement.id'),'pane-jev');
+ await screenshot('/root/pi-herd/design/v2-subagents.jpg');
+ await e('openPalette()');await new Promise(r=>setTimeout(r,80));
+ await screenshot('/root/pi-herd/design/v2-palette.jpg');
+ await search('does-not-exist');assert.match(await e("document.getElementById('paletteList').textContent"),/未找到/);
+ await key('Escape');assert.equal(await e('document.activeElement.id'),'pane-jev');
+ await e('openPalette()');await search('main');await key('Enter');
+ assert.equal(await e('state.activeTab'),'main');
+ assert.equal(await e('document.activeElement.id'),'editorInput');
+ await e('openPalette()');await search('ohos-build');await key('Enter');
+ assert.equal(await e('state.activeResultModalTask.id'),'ohos-build');
+ assert.equal(await e('state.activeTab'),'main');await key('Escape');
+ await e('simulateCompleteTask();simulateExpireTimer()');
+ assert.equal(await e('state.activeTab'),'main');
+ assert.equal(await e("getComputedStyle(document.getElementById('pane-download')).display"),'none');
+ assert.ok(!(await e("document.getElementById('fleetRowsContainer').textContent")).includes('download-tests'));
+ await e('openPalette()');await search('download');assert.match(await e("document.getElementById('paletteList').textContent"),/查看结果/);await key('Escape');
+ await e("resetDefaultScenario();setWidth('48')");await resize(460,900);
+ assert.ok(await e('document.body.scrollWidth <= innerWidth'));
+ await e('openPalette()');await new Promise(r=>setTimeout(r,80));
+ assert.ok(await e('document.body.scrollWidth <= innerWidth'));
+ await screenshot('/root/pi-herd/design/v2-narrow.jpg');
+ await key('Escape');await e("setWidth('100');resetDefaultScenario()");await resize(1440,1000);
+ await screenshot('/root/pi-herd/design/v2-main.jpg');
+ console.log('PASS browser: search/Enter pane jump + actual focus, Escape restore, no results, main return, closed result view, expiry/history, no completion tab stealing, narrow layout');
+} finally { close(); }
