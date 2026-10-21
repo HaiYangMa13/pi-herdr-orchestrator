@@ -1,9 +1,20 @@
 {
   "name": "pi-herdr-orchestrator",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "herdr-backed subagent orchestrator for the Pi coding agent: real panes, per-agent result contracts, and TypeSafe Jev gates",
   "type": "module",
   "license": "MIT",
+  "author": {
+    "name": "HaiYangMa13"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HaiYangMa13/pi-herdr-orchestrator.git"
+  },
+  "homepage": "https://github.com/HaiYangMa13/pi-herdr-orchestrator#readme",
+  "bugs": {
+    "url": "https://github.com/HaiYangMa13/pi-herdr-orchestrator/issues"
+  },
   "engines": {
     "node": ">=22"
   },
