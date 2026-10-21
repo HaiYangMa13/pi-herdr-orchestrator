@@ -96,7 +96,7 @@ pi --model <provider/id:thinking> --thinking <level> --tools <csv> \
 
 ## 6. Agent 定义
 
-`/root/code/pi-herdr/agents/*.md`，最小 frontmatter：`name, model, thinking, tools(csv), description`，
+`/root/code/pi-herdr-orchestrator/agents/*.md`，最小 frontmatter：`name, model, thinking, tools(csv), description`，
 body 即 system prompt 追加段。自带：`scout`（read/grep/find/ls）、`worker`（+bash/edit/write）、
 `reviewer`（只读）。`agents.json` 由构建脚本从 md 生成，供 `routeDefinition` 使用。
 
@@ -110,7 +110,7 @@ body 即 system prompt 追加段。自带：`scout`（read/grep/find/ls）、`wo
 
 在临时目录 `/tmp/herd-accept/` 执行，全程记录命令与输出：
 
-1. `pi --extension /root/code/pi-herdr/index.ts` 起一个会话，`herd_spawn` 一个 `scout`，
+1. `pi --extension /root/code/pi-herdr-orchestrator/index.ts` 起一个会话，`herd_spawn` 一个 `scout`，
    结果写入 `result.md` 且父会话被唤醒（`herd-agent-result`）。
 2. 诱发一次 `ask.json`（任务里要求它提问），`herd_reply` 后能继续到终态。
 3. `herd_close` 后：`herdr agent list` 无该 agent，`herdr pane process-info` 不是 pi，
