@@ -71,6 +71,13 @@ test('the registered hook replaces only its own section and removes stale guidan
   assert.deepEqual(sections, { unrelated: 'keep me' });
 });
 
+test('the contract says when to delegate proactively, not only how', () => {
+  const text = guidanceText('/tmp/root');
+  assert.match(text, /默认主动派活/);
+  assert.match(text, /并行/);
+  assert.match(text, /不派的四种/);
+});
+
 test('the section name satisfies the prompt builder naming rule', () => {
   assert.match(GUIDANCE_SECTION, /^[a-z][a-z0-9_-]*$/);
   assert.notEqual(GUIDANCE_SECTION, 'preamble');

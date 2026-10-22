@@ -518,7 +518,7 @@ export default function (pi: ExtensionAPI) {
 		name: "herd_spawn",
 		label: "herd_spawn",
 		description:
-			"Spawn a herdr-hosted pi subagent in this parent session's shared agents tab for one bounded assignment. Returns immediately (async, default) and wakes this session with herd-agent-result at a terminal state. The child writes its result to a file.",
+			"Spawn a herdr-hosted pi subagent in this parent session's shared agents tab for one bounded assignment. Delegate proactively instead of doing the work inline when the task splits into independent parallel branches, needs long search/trial work that only a summary should return, or needs an independent review of your own diff. Returns immediately (async, default) and wakes this session with herd-agent-result at a terminal state. The child writes its result to a file.",
 		parameters: Type.Object({
 			task: Type.String({ description: "Full task text. Must contain acceptance criteria and concrete file paths." }),
 			definition: Type.Optional(Type.String({ description: "Agent definition name; pass one from the roster herd_status prints (name (model) — when to use it). Required: an unknown name is rejected, never substituted." })),

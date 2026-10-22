@@ -1,6 +1,6 @@
 {
   "name": "pi-herdr-orchestrator",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "herdr-backed subagent orchestrator for the Pi coding agent: real panes, per-agent result contracts, and local deterministic task/result gates",
   "type": "module",
   "license": "MIT",

@@ -39,7 +39,11 @@ when `herd_spawn` is selected and not hidden. If the tool is unavailable, the
 extension removes its own section without touching other prompt sections.
 Subagents do not load the orchestrator and receive no parent guidance.
 
-No copy/paste into `AGENTS.md` is required. Keep host-specific safety policies
+No copy/paste into `AGENTS.md` is required. The contract opens with the
+**when** to delegate — parallel branches, long search that should return only a
+summary, independent review of the parent's own diff — and the four cases that
+stay inline (tiny edits, Q&A, cross-turn conversation, meta work). Keep
+host-specific safety policies
 there, not plugin tools, defaults, or implementation details. When migrating an
 existing setup, first activate the updated plugin, then remove the old
 orchestration section from the global `AGENTS.md`. Source edits alone do not
