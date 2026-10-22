@@ -102,7 +102,14 @@ function firstSentence(text: string): string {
 
 /** What the model must see before it can pick a definition: name, pinned model, and when to use it. */
 function rosterText(list: AgentDef[]): string {
-	return list.map((d) => `- ${d.name} (${d.model ?? "inherit"}) — ${firstSentence(d.description)}`).join("\n");
+	return list
+		.map((d) => {
+			// A user file may leave `description` out; fall back to its first prompt line so the roster
+			// never shows a dangling dash where the routing hint should be.
+			const when = firstSentence(d.description || d.body.split("\n").find((line) => line.trim()) || d.name);
+			return `- ${d.name} (${d.model ?? "inherit"}) — ${when}`;
+		})
+		.join("\n");
 }
 
 function describeOutcome(
