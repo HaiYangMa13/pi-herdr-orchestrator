@@ -73,31 +73,25 @@ You own only the explicitly assigned UI surface...
 ```
 
 - A user file wins over the packaged default of the same name; omitted `model` / `thinking` / `tools` / body fall back to the packaged version.
-- `description` is what the Jev router matches on when `definition` is omitted.
+- `description` is the routing hint: `herd_status` prints the roster as `name (model) — first sentence`, and the model picks from it.
 - Packaged defaults: `scout`, `worker`, `reviewer`. Yours may add `implementer`, `generalist`, `researcher`, `frontend-designer`, or anything else.
 
-## Jev gates (optional)
+## Task and result gates (local)
 
-With [TypeSafe Jev](https://console.typesafe.ai) configured, three narrow classification calls run per handoff:
+No network, no API key, no model call: both gates are deterministic lints that ship with the extension.
 
-1. **Task gate** — reject a task that has no acceptance criteria or no output path, before spending a pane on it.
-2. **Role router** — pick the definition when `definition` is omitted.
-3. **Result gate** — flag a result that claims success without evidence (a lone `READY.` is not a report).
+1. **Task gate** — `herd_spawn` rejects a task that names neither a file path nor an acceptance bar. Anything less severe becomes a `taskGate.missing` note in `meta.json` plus a reminder line in the child's contract header.
+2. **Result gate** — a result that is a lone `READY.`, shorter than 120 characters, or missing the required sections is reported as `verdict: suspect` in the wake-up message.
 
-Without an API key all three degrade to pass-through; a deterministic lint still flags empty or placeholder results.
+## Definition routing
 
-```json
-{
-  "jev": {
-    "apiKey": "sk-...",
-    "model": "jev-latest",
-    "enabled": true,
-    "proxy": "http://127.0.0.1:7890"
-  }
-}
-```
+There is no router. `herd_status` prints the roster — `name (model) — when to use it` — alongside the session's agents, and `herd_spawn` requires a `definition` from it. An unknown name is an error, never a substituted default: a child running under the wrong role and model is a silent permission bug.
 
-Config lives at `~/.pi/agent/pi-herdr/config.json` (override the root with `PI_HERDR_ROOT`). `proxy` is honoured through `curl`, since Node's `fetch` ignores `HTTP_PROXY`.
+## Agent definitions are owner-only
+
+A definition pins the model, thinking level and tool set of every future child, so children cannot create or edit one. `child-ui.ts` blocks write/edit calls whose path is under `~/.pi/agent/agents/` (and shell redirects that touch it), and the parent re-audits at terminal state: any definition file that appeared while a child ran is moved to `<run>/<label>/tampered/` and reported.
+
+Config lives at `~/.pi/agent/pi-herdr/config.json` (override the root with `PI_HERDR_ROOT`).
 
 ## Layout on disk
 

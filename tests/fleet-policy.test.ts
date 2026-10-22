@@ -36,3 +36,13 @@ test('attention sorts before running, then completions',()=> {
  assert.ok(fleetRank('failed') < fleetRank('done'));
  assert.ok(fleetRank('running') < fleetRank('done'));
 });
+test('a spawn that never started expires instead of pinning an error row',()=> {
+ const spawnFailed: Meta = {...meta,state:'spawn_failed',startedAt:95_000,endedAt:95_200};
+ assert.equal(showFleetRow(spawnFailed,'spawn_failed',false,now),true);
+ assert.equal(showFleetRow(spawnFailed,'spawn_failed',false,now+60_000),false);
+ assert.equal(showFleetRow(spawnFailed,'spawn_failed',false,now,{completedTtlMs:0}),false);
+});
+test('spawn failures sort below real attention and above running',()=> {
+ assert.ok(fleetRank('failed') < fleetRank('spawn_failed'));
+ assert.ok(fleetRank('spawn_failed') < fleetRank('running'));
+});

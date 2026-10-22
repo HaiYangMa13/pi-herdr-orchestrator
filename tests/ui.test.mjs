@@ -25,6 +25,18 @@ test('fleet handles ANSI/CJK/long labels at narrow widths',()=>{
  view.rows=[{mark:'?',state:'blocked',label:'中文任务-long-name'.repeat(3),def:'reviewer',dur:'123m59s',flags:'ASK'}];
  for(const width of [1,12,24,40,70,80,120]) for(const line of view.render(width))assert.ok(visibleWidth(line)<=width,`${width}: ${line}`);
 });
+test('child cannot write agent definitions or pi-herdr config',async()=>{
+ const handlers={};
+ childUI({registerFlag(){},registerCommand(){},on:(name,fn)=>{handlers[name]=fn;},exec(){throw Error('not called')}});
+ const guard=handlers['tool_call'];
+ assert.equal(typeof guard,'function');
+ assert.equal((await guard({toolName:'write',input:{path:'/root/.pi/agent/agents/evil.md'}}))?.block,true);
+ assert.equal((await guard({toolName:'edit',input:{file_path:'C:\\Users\\u\\.pi\\agent\\agents/release.md'}}))?.block,true);
+ assert.equal((await guard({toolName:'bash',input:{command:'echo x > ~/.pi/agent/agents/evil.md'}}))?.block,true);
+ assert.equal((await guard({toolName:'read',input:{path:'/root/.pi/agent/agents/worker.md'}})),undefined);
+ assert.equal((await guard({toolName:'write',input:{path:'/tmp/project/src/app.ts'}})),undefined);
+ assert.equal((await guard({toolName:'bash',input:{command:'ls ~/.pi/agent/agents'}})),undefined);
+});
 test('palette search, keyboard selection, escape, mouse, narrow rendering',()=>{
  const entries=[{id:'a',label:'download',detail:'scout',action:'进入窗口'},{id:'b',label:'review',detail:'worker',action:'查看记录'}];
  let chosen;const p=new AgentPalette({requestRender(){},terminal:{rows:24}},theme,entries,'parent demo',e=>chosen=e);

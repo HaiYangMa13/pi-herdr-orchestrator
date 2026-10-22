@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 
 export type HerdConfig = {
-	jev?: { apiKey?: string; model?: string; enabled?: boolean; timeoutMs?: number; proxy?: string };
 	fleet?: { refreshMs?: number; showDone?: boolean; maxRows?: number; completedTtlMs?: number };
 	spawnPlacement?: "tab" | "split";
 	/** Grace window (ms) to let a child dump result.md before its pane is closed. 0 disables. Default 180000. */

@@ -36,7 +36,7 @@ pi --model <provider/id:thinking> --thinking <level> --tools <csv> \
 
 ```
 ~/.pi/agent/pi-herd/
-  config.json                     # 可选覆盖：jev 开关、默认超时
+  config.json                     # 可选覆盖：fleet 显示、spawn 方式、rescue 宽限
   runs/<runId>/                   # runId = 父 pi session id
     <label>/
       meta.json                   # {label, definition, paneId, herdrName, piSessionId, startedAt, state, exitReason}
@@ -53,8 +53,8 @@ pi --model <provider/id:thinking> --thinking <level> --tools <csv> \
 
 | 工具 | 参数 | 行为 |
 |---|---|---|
-| `herd_spawn` | `definition, label?, task, files?[], async?=true` | 过 Jev 任务书门 → 建 pane → 起 pi → 投递 → 返回 `{label, paneId, state}`；`async` 时立即返回 |
-| `herd_wait` | `label, timeoutMs?` | `agent wait` 到终态 → 读 `result.md` → 过 Jev 结果门 → 返回结构化结果 |
+| `herd_spawn` | `definition, label?, task, files?[], async?=true` | 过本地任务书 lint → 建 pane → 起 pi → 投递 → 返回 `{label, paneId, state}`；`async` 时立即返回 |
+| `herd_wait` | `label, timeoutMs?` | `agent wait` 到终态 → 读 `result.md` → 过本地结果 lint → 返回结构化结果 |
 | `herd_status` | — | 磁盘 + `herdr agent list` 合并视图：label / state / 已运行时长 / 有无 result |
 | `herd_steer` | `label, message` | `agent prompt --wait --until working`；返回是否被接受 |
 | `herd_reply` | `label, answer` | 回答 `ask.json`（`agent prompt`），清 ask 标记 |
@@ -77,28 +77,23 @@ pi --model <provider/id:thinking> --thinking <level> --tools <csv> \
 禁止只回复 READY./done 之类的单字结束；禁止在没有任何文本总结时结束回合。
 ```
 
-## 5. Jev 接入（可选，缺 API key 时全部降级为 no-op 并记警告）
+## 5. 任务/结果门（本地确定性 lint，无网络）
 
-客户端：`POST https://api.typesafe.ai/v1/systemone`，body `{ state, questions: {...} }`，
-返回带类型的答案 + 置信度；key 取 `TYPESAFE_API_KEY`。**请求/响应精确 shape 以实现前
-`curl` 官方文档核对为准**（`https://docs.typesafe.ai/`），不得凭记忆编造字段。
+早期版本接 TypeSafe Jev 做三个分类判定，已整条移除（2026-10-22）：一次判定要过代理、要 key，
+失败还得降级放行——等于用不可靠的东西去判可靠性。现在两个门都是本地纯函数。
 
-三个判定点：
-
-1. `gateTaskSpec(task)` → `{pass, missing: string[]}`：是否含验收标准、是否指名文件路径、
-   是否禁止无验证声称通过。不 pass → `herd_spawn` 直接返回错误，要求补任务书。
-2. `gateResult(resultText)` → `{verdict: "pass"|"fail"|"needs_more", confidence}`：
-   区分"真做完"与"空话/假完成"。`fail`/`needs_more` 在结果里显式标注，不阻断。
-3. `routeDefinition(taskText)` → `{definition, confidence}`：从 `agents.json` 的候选里选。
-   仅在调用方未指定 definition 且置信度 ≥ 阈值时采用，否则报错要求显式指定。
-
-判定点失败（网络/超时/Jev 报错）必须**降级放行**并标注 `gated: false`，绝不因 Jev 不可用而阻塞编排。
+1. `lintTask(task)` → `{ok, missing[]}`：同时命中「没有具体文件路径」与「没有验收标准」→
+   `herd_spawn` 直接拒绝；剩余缺项写入 `meta.taskGate` 并附在子 agent 合同头里，不阻断。
+2. `lintResult(text)` → `{ok, reasons[]}`：单字确认 / < 120 字符 / 缺 3 份章节 → `verdict: suspect`，
+   只标注不阻断。
+3. 没有路由：`herd_status` 打印名册（`name (model) — 何时用`），`definition` 由模型取自名册，
+   未知名字直接报错，**不做默认替换**（否则子 agent 会在错角色/错模型下静默运行）。
 
 ## 6. Agent 定义
 
 `/root/code/pi-herdr-orchestrator/agents/*.md`，最小 frontmatter：`name, model, thinking, tools(csv), description`，
 body 即 system prompt 追加段。自带：`scout`（read/grep/find/ls）、`worker`（+bash/edit/write）、
-`reviewer`（只读）。`agents.json` 由构建脚本从 md 生成，供 `routeDefinition` 使用。
+`reviewer`（只读）。**定义只有 owner 能写**：`child-ui.ts` 在 `tool_call` 拦截指向 `~/.pi/agent/agents/` 的写/edit 与相关 shell 重定向（fail-closed），父侧在子任务终结时按 `meta.defsSnapshot` 审计，新增文件移入 `<run>/<label>/tampered/` 并上报。
 
 ## 7. 与非目标
 
@@ -115,7 +110,7 @@ body 即 system prompt 追加段。自带：`scout`（read/grep/find/ls）、`wo
 2. 诱发一次 `ask.json`（任务里要求它提问），`herd_reply` 后能继续到终态。
 3. `herd_close` 后：`herdr agent list` 无该 agent，`herdr pane process-info` 不是 pi，
    进程表无残留 pi。
-4. 反例：任务书缺验收标准时 `herd_spawn` 被 Jev 门拦下（有 key）或标注 `gated:false`（无 key）。
+4. 反例：任务书同时缺路径与验收标准时 `herd_spawn` 直接拒绝；只缺一项时 `meta.taskGate.missing` 记录并附在合同头提醒。
 5. 反例：故意让子 agent 只输出 `READY.`，`gateResult` 判 `fail` 或 `no_result` 被正确上报。
 6. 全程零 `pane run echo`：`grep -c 'pane.*run' src/` = 0。
 
@@ -130,7 +125,7 @@ body 即 system prompt 追加段。自带：`scout`（read/grep/find/ls）、`wo
 | 子 agent 只读也能交结果 | **错**。结果文件需要写权限；只挂 `read` 的子 agent 无法产出 | 所有定义都带 `write`（仅允许写结果文件） |
 | 交付后 agent 可复用 | 复用 = 孤儿 pane 风险 | 默认 `keepAlive:false`，终态后自动 `ctrl+c ctrl+d` 关闭 |
 | — | **新发现的坑**：`blocked`（子 agent 提问）时若自动关闭，`herd_reply` 必然 `agent_not_found` | `blocked` 状态**不**自动关闭；`herd_reply` 后重新挂 watcher |
-| 结果质量靠 Jev | 无 `TYPESAFE_API_KEY` 时 Jev 全部降级，`READY.` 之类假完成会漏过 | 增加确定性 lint（单字确认 / <120 字符 / 缺 3 份章节）→ `verdict: suspect`，不依赖 Jev |
+| 结果质量靠外部分类器（Jev） | 要 key、要代理、失败还得降级放行，等于用不可靠的东西判可靠性 | 整条 Jev 链路已删除；任务书与结果都改本地确定性 lint，无网络无 key |
 
 ### 已验证的完整链路（父会话被唤醒两次，全程 57 秒）
 

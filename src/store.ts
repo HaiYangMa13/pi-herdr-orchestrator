@@ -12,9 +12,11 @@ export type MetaState =
 	| "no_result"
 	| "timeout"
 	| "failed"
+	/** Never started: the pane or the agent registration failed. Not a run outcome, so it expires. */
+	| "spawn_failed"
 	| "closed";
 
-export const TERMINAL_STATES: MetaState[] = ["done", "closed", "failed", "no_result", "timeout"];
+export const TERMINAL_STATES: MetaState[] = ["done", "closed", "failed", "spawn_failed", "no_result", "timeout"];
 
 export type Meta = {
 	label: string;
@@ -28,6 +30,8 @@ export type Meta = {
 	state: MetaState;
 	keepAlive?: boolean;
 	taskGate?: unknown;
+	/** Agent-definition file names that existed when this child was spawned, for tamper auditing. */
+	defsSnapshot?: string[];
 	endedAt?: number;
 	closedAt?: number;
 	exitReason?: string;

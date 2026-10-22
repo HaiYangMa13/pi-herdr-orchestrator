@@ -31,7 +31,6 @@ import {
 	type Meta,
 	type MetaState,
 } from "./src/store.ts";
-import { createJev, type Jev } from "./src/jev.ts";
 import { loadConfig } from "./src/config.ts";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -79,6 +78,33 @@ function lintResult(text: string): { ok: boolean; reasons: string[] } {
 	return { ok: reasons.length === 0, reasons };
 }
 
+/**
+ * Deterministic task-spec lint. Replaces the removed Jev task gate: no network, no model, no
+ * degradation path. A spec that names neither a file nor an acceptance bar is rejected outright.
+ */
+function lintTask(task: string): { ok: boolean; missing: string[] } {
+	const text = String(task ?? "").trim();
+	const missing: string[] = [];
+	const hasPath =
+		/(?:^|[\s`'"(（,，])(?:~\/|\.{1,2}\/|\/)[^\s`'"()]+/m.test(text) ||
+		/[\w.-]+\/[\w./-]*\.[a-z0-9]{1,6}\b/i.test(text);
+	const hasAcceptance = /(验收|通过标准|acceptance|expected|assert|单测|测试|test)/i.test(text);
+	if (text.length < 60) missing.push(`任务正文过短（${text.length} 字符 < 60），写清目标、边界与产出`);
+	if (!hasPath) missing.push("没有具体文件路径（绝对路径或 repo 相对路径）");
+	if (!hasAcceptance) missing.push("没有验收标准（验收 / acceptance / expected / 测试）");
+	return { ok: missing.length === 0, missing };
+}
+
+function firstSentence(text: string): string {
+	const at = text.search(/[.。](\s|$)/);
+	return (at > 0 ? text.slice(0, at) : text).trim();
+}
+
+/** What the model must see before it can pick a definition: name, pinned model, and when to use it. */
+function rosterText(list: AgentDef[]): string {
+	return list.map((d) => `- ${d.name} (${d.model ?? "inherit"}) — ${firstSentence(d.description)}`).join("\n");
+}
+
 function describeOutcome(
 	label: string,
 	state: string,
@@ -93,7 +119,7 @@ function describeOutcome(
 		parts.push(`result gate: **${gate.verdict ?? "n/a"}**${conf}`);
 		if (gate.missing?.length) parts.push(`gate findings: ${gate.missing.map((m: string) => `- ${m}`).join("; ")}`);
 	} else {
-		parts.push(`result gate: skipped (${gate?.reason ?? "jev unavailable"})`);
+		parts.push(`result gate: skipped (${gate?.reason ?? "no gate"})`);
 	}
 	if (ask) parts.push(`### 子 agent 提问（未回答，用 herd_reply）\n${JSON.stringify(ask, null, 2)}`);
 	parts.push(result?.trim() ? `### 结果\n${result.trim()}` : "### 结果\n(缺失 result.md)");
@@ -101,13 +127,15 @@ function describeOutcome(
 	return parts.join("\n\n");
 }
 
-const MARKS: Record<string,string> = { starting:"⠋", running:"⠏", blocked:"?", done:"+", no_result:"!", timeout:"!", failed:"x", closed:"." };
+const MARKS: Record<string,string> = { starting:"⠋", running:"⠏", blocked:"?", done:"+", no_result:"!", timeout:"!", failed:"x", spawn_failed:"x", closed:"." };
+
+/** How many refreshes a child may be missing from `herdr agent list` before the strip calls it gone. */
+const MISSES_BEFORE_GONE = 3;
 
 // ------------------------------------------------------------------- extension
 
 export default function (pi: ExtensionAPI) {
 	let herd: ReturnType<typeof createHerdr> | undefined;
-	let jev: Jev | undefined;
 	let agents: AgentDef[] = [];
 	let sessionId = "no-session";
 	let shuttingDown = false;
@@ -115,20 +143,46 @@ export default function (pi: ExtensionAPI) {
 	let fleetTimer: ReturnType<typeof setInterval> | undefined;
 	let rendering = false;
 	const watchers = new Map<string, AbortController>();
+	/** Consecutive refreshes whose listing lacked a child that should still be alive. */
+	const agentMisses = new Map<string, number>();
 
 	function bind(ctx: any) {
 		if (!herd) {
 			const exec = (cmd: string, args: string[], opts?: any) => pi.exec(cmd, args, opts);
 			herd = createHerdr(exec as any);
-			jev = createJev({ exec: exec as any } as any);
 		}
-		return { h: herd!, jev: jev! };
+		return { h: herd! };
 	}
 
 	async function defs(): Promise<AgentDef[]> {
 		// Re-read on every call so a new or edited role file applies without a reload.
 		agents = await loadAgentSet(USER_AGENT_DIR, AGENT_DIR);
 		return agents;
+	}
+
+	async function definitionNames(): Promise<string[]> {
+		const { readdir } = await import("node:fs/promises");
+		return (await readdir(USER_AGENT_DIR).catch(() => [] as string[])).filter((f) => f.endsWith(".md")).sort();
+	}
+
+	/**
+	 * Agent definitions are owner-only. The child-side guard blocks the write; this is the audit that
+	 * catches what a shell one-liner slipped past it. New files are moved into the run dir, never
+	 * deleted, and pre-existing definitions are left untouched (a child cannot cost the owner a role).
+	 */
+	async function auditDefinitions(sessionId: string, label: string, before: string[]): Promise<string[]> {
+		const added = (await definitionNames()).filter((name) => !before.includes(name));
+		if (!added.length) return [];
+		const { rename: move } = await import("node:fs/promises");
+		const quarantine = join(agentPaths(sessionId, label).dir, "tampered");
+		await ensureDir(quarantine);
+		const moved: string[] = [];
+		for (const name of added) {
+			await move(join(USER_AGENT_DIR, name), join(quarantine, name)).catch(() => undefined);
+			moved.push(name);
+		}
+		await logLine(sessionId, label, "definition-tamper", { added: moved, quarantine });
+		return moved;
 	}
 
 	function piArgsFor(def: AgentDef, label: string, piSessionId: string): string[] {
@@ -147,14 +201,17 @@ export default function (pi: ExtensionAPI) {
 		return args;
 	}
 
-	function contractHeader(paths: ReturnType<typeof agentPaths>, def: AgentDef): string {
-		return [
+	function contractHeader(paths: ReturnType<typeof agentPaths>, def: AgentDef, notes: string[] = []): string {
+		const lines = [
 			`你是 ${def.name}，只执行本次分配，不得委派或提议再开子 agent。`,
+			`禁止新建或修改 agent 定义（~/.pi/agent/agents/*.md）与 pi-herdr 配置；需要新角色就写进结果文件交给 owner。`,
 			`任务正文见 ${paths.task}（先读它）。`,
 			`最终结果必须写入文件 ${paths.result}，Markdown，含五节：完成内容 / 改动文件 / 验证程度（编译·单测·真机·未验证） / 阻塞与风险 / 剩余工作。没验证就写「未验证」。`,
 			`需要 owner 决策时：把 {"question":"...","options":[...]} 写入 ${paths.ask} 后停止，不要猜。`,
 			`禁止只回 READY./done 之类单字结束；禁止在没有文本总结时结束回合。`,
-		].join("\n");
+		];
+		if (notes.length) lines.push(`任务书自检提醒（不阻断）：${notes.join("；")}`);
+		return lines.join("\n");
 	}
 
 	function mountWidget(ctx: any) {
@@ -207,7 +264,15 @@ export default function (pi: ExtensionAPI) {
 				let state: string = meta.state;
 				if (agent?.agent_status === "working") state = "running";
 				else if (agent?.agent_status === "blocked") state = "blocked";
-				else if (live !== undefined && !agent && (meta.state === "running" || meta.state === "starting")) state = "failed";
+				if (agent || (state !== "running" && state !== "starting")) agentMisses.delete(label);
+				else if (live !== undefined) {
+					// One missing listing entry is not a death certificate. herdr can drop a name for a refresh
+					// while the pane is alive, and pi retries a stream error instead of dying, so wait it out
+					// before painting a failure the run does not have.
+					const misses = (agentMisses.get(label) ?? 0) + 1;
+					agentMisses.set(label, misses);
+					if (misses >= MISSES_BEFORE_GONE) state = "failed";
+				}
 				if (askPending && state !== "closed" && state !== "done" && state !== "failed") state = "blocked";
 				if (!showFleetRow(meta, state, live === undefined || Boolean(agent), now, fleetConfig)) continue;
 				if (state === "running" || state === "starting") running++;
@@ -331,7 +396,7 @@ export default function (pi: ExtensionAPI) {
 			};
 		}
 
-		const { h, jev: j } = bind(ctx);
+		const { h } = bind(ctx);
 		const controller = new AbortController();
 		const previous = watchers.get(label);
 		if (previous) previous.abort();
@@ -376,7 +441,7 @@ export default function (pi: ExtensionAPI) {
 			? { gated: false, reason: "no result text" }
 			: lint && !lint.ok
 				? { gated: true, verdict: "suspect", missing: lint.reasons }
-				: await j.gateResult(result);
+				: { gated: true, verdict: "pass", missing: [] as string[] };
 
 		let closeInfo = "";
 		const shouldClose = !meta.keepAlive && state !== "blocked";
@@ -400,7 +465,11 @@ export default function (pi: ExtensionAPI) {
 		});
 		void refreshFleet(ctx);
 
-		const text = describeOutcome(label, state, result, ask, paneTail, gate);
+		const tampered = await auditDefinitions(sessionId, label, meta.defsSnapshot ?? []);
+		const outcomeText = describeOutcome(label, state, result, ask, paneTail, gate);
+		const text = tampered.length
+			? `## ⚠ 子 agent 新增了 agent 定义，已隔离到 ${join(agentPaths(sessionId, label).dir, "tampered")}\n${tampered.map((n) => `- ${n}`).join("\n")}\n\n${outcomeText}`
+			: outcomeText;
 		if (notify && !shuttingDown && updated?.state !== 'closed') {
 			try {
 				pi.sendMessage({ customType: "herd-agent-result", content: text, display: true }, { triggerTurn: true });
@@ -426,7 +495,7 @@ export default function (pi: ExtensionAPI) {
 			"Spawn a herdr-hosted pi subagent in this parent session's shared agents tab for one bounded assignment. Returns immediately (async, default) and wakes this session with herd-agent-result at a terminal state. The child writes its result to a file.",
 		parameters: Type.Object({
 			task: Type.String({ description: "Full task text. Must contain acceptance criteria and concrete file paths." }),
-			definition: Type.Optional(Type.String({ description: "Agent definition name (see /herdr). Omit to let the router choose." })),
+			definition: Type.Optional(Type.String({ description: "Agent definition name; pass one from the roster herd_status prints (name (model) — when to use it). Required: an unknown name is rejected, never substituted." })),
 			label: Type.Optional(Type.String({ description: "Short label, e.g. build-api." })),
 			files: Type.Optional(Type.Array(Type.String(), { description: "File paths the child must read first." })),
 			async: Type.Optional(Type.Boolean({ description: "Return immediately and wake later. Default true." })),
@@ -440,30 +509,21 @@ export default function (pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_toolCallId, params: any, signal, _onUpdate, ctx) {
-			const { h, jev: j } = bind(ctx);
+			const { h } = bind(ctx);
 			const available = await defs();
-			let definition = params.definition as string | undefined;
-			if (!definition) {
-				const routed = await j.routeDefinition(
-					available.map((d) => ({ name: d.name, description: d.description })),
-					params.task,
-				);
-				if (!routed.gated || !routed.verdict) {
-					throw new Error(
-						`definition is required; router said: ${routed.reason ?? "no verdict"} (confidence ${routed.confidence ?? "?"}); available: ${available.map((d) => d.name).join(", ")}`,
-					);
-				}
-				definition = routed.verdict;
-			}
+			const roster = rosterText(available);
+			const definition = params.definition as string | undefined;
+			// No router: the model picks a role from the roster shown to it, and an unknown or missing
+			// name is a hard error. Silently substituting a default role is how agents end up running
+			// under the wrong permissions and model.
+			if (!definition) throw new Error(`definition is required; pass one of:\n${roster}`);
 			const def = available.find((d) => d.name === definition);
-			if (!def) throw new Error(`unknown definition '${definition}'; available: ${available.map((d) => d.name).join(", ")}`);
+			if (!def) throw new Error(`unknown definition '${definition}'; available:\n${roster}`);
 
-			const gate = await j.gateTaskSpec(params.task);
-			if (gate.gated && gate.ok === false) {
-				throw new Error(
-					`task spec rejected by jev gate. missing: ${(gate.missing ?? []).join("; ")}. Add acceptance criteria and concrete paths, then retry.`,
-				);
-			}
+			const spec = lintTask(params.task);
+			const noPath = spec.missing.some((m) => m.startsWith("没有具体文件路径"));
+			const noBar = spec.missing.some((m) => m.startsWith("没有验收标准"));
+			if (noPath && noBar) throw new Error(`task spec rejected: ${spec.missing.join("；")}。补上验收标准和具体路径后重试。`);
 
 			const base = sanitizeLabel(params.label ?? `${def.name}-${rand8()}`);
 			const existing = (await readJson(agentPaths(sessionId, base).meta)) as Meta | undefined;
@@ -497,7 +557,8 @@ export default function (pi: ExtensionAPI) {
 				startedAt: Date.now(),
 				state: "starting",
 				keepAlive: params.keepAlive === true,
-				taskGate: gate.gated ? { ok: gate.ok, missing: gate.missing } : { gated: false },
+				taskGate: { ok: spec.ok, missing: spec.missing },
+				defsSnapshot: await definitionNames(),
 			};
 			await writeMeta(sessionId, label, meta);
 			await logLine(sessionId, label, "pane", { paneId, tabId, placement, taskGate: meta.taskGate });
@@ -506,14 +567,26 @@ export default function (pi: ExtensionAPI) {
 				await h.start(herdrName, paneId, piArgsFor(def, label, meta.piSessionId));
 				await h.renamePane(paneId, `SUB · ${label}`).catch(() => undefined);
 				await writeMeta(sessionId, label, { ...meta, state: "running" });
-				await h.prompt(herdrName, contractHeader(paths, def), 90_000);
-				await logLine(sessionId, label, "prompted");
 			} catch (error: any) {
 				const reason = String(error?.message ?? error);
-				await writeMeta(sessionId, label, { ...meta, state: "failed", endedAt: Date.now(), exitReason: reason });
+				await writeMeta(sessionId, label, { ...meta, state: "spawn_failed", endedAt: Date.now(), exitReason: reason });
 				await logLine(sessionId, label, "spawn-failed", reason);
 				await h.kill(herdrName, paneId, tabId).catch(() => undefined);
 				throw new Error(`agent start failed: ${reason}`);
+			}
+			// Handing over the task is not the same as starting the agent. A prompt timeout means delivery
+			// is unconfirmed, not that the run failed: the child is alive, its pane is the place to retry,
+			// and the watcher nudges again on rescue. Killing a healthy child here threw away whole runs.
+			for (let attempt = 1; attempt <= 2; attempt++) {
+				try {
+					await h.prompt(herdrName, contractHeader(paths, def, spec.missing), 90_000);
+					await logLine(sessionId, label, "prompted", { attempt });
+					break;
+				} catch (error: any) {
+					const reason = String(error?.message ?? error);
+					await logLine(sessionId, label, attempt === 1 ? "prompt-retry" : "prompt-unconfirmed", reason);
+					if (attempt === 1) await new Promise((resolve) => setTimeout(resolve, 2_000));
+				}
 			}
 
 			void refreshFleet(ctx);
@@ -553,7 +626,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "herd_wait",
 		label: "herd_wait",
-		description: "Block until a herd agent reaches a terminal state; return its result file, ask file and Jev result gate.",
+		description: "Block until a herd agent reaches a terminal state; return its result file, ask file and the local result lint.",
 		parameters: Type.Object({ label: Type.String(), timeoutMs: Type.Optional(Type.Number({ description: "Default 1800000" })) }),
 		async execute(_toolCallId, params: any, _signal, _onUpdate, ctx) {
 			const outcome = await watch(params.label, ctx, params.timeoutMs ?? 1_800_000, false);
@@ -567,7 +640,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "herd_status",
 		label: "herd_status",
-		description: "List this session's herd agents: disk state, live herdr state, result/ask presence, elapsed minutes.",
+		description: "List this session's herd agents and the definition roster available to herd_spawn.",
 		parameters: Type.Object({}),
 		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
 			const { h } = bind(ctx);
@@ -586,7 +659,9 @@ export default function (pi: ExtensionAPI) {
 				);
 			}
 			const text = rows.length ? `herd agents (session ${sessionId}):\n${rows.join("\n")}` : `no herd agents in session ${sessionId}`;
-			return { content: [{ type: "text" as const, text }], details: { count: rows.length } };
+			const roster = rosterText(await defs());
+			const full = `${text}\n\ndefinitions (pass one as herd_spawn definition):\n${roster}`;
+			return { content: [{ type: "text" as const, text: full }], details: { count: rows.length } };
 		},
 	});
 
@@ -725,13 +800,22 @@ export default function (pi: ExtensionAPI) {
 			const meta = (await readJson(agentPaths(sessionId, label).meta)) as Meta | undefined;
 			if (!meta) continue;
 			if (meta.state === "starting" || meta.state === "running") {
-				const alive = await bind(ctx).h.exists(meta.herdrName);
+				let alive = await bind(ctx).h.exists(meta.herdrName);
 				if (!alive) {
+					// A child caught mid-start during the reload is not dead yet: re-check once, and keep a
+					// finished result on disk rather than calling a run failed that actually delivered.
+					await new Promise((resolve) => setTimeout(resolve, 1_500));
+					alive = await bind(ctx).h.exists(meta.herdrName);
+				}
+				if (!alive) {
+					const rescued = await readText(agentPaths(sessionId, label).result);
 					await updateMeta(sessionId, label, (current) => ({
 						...current,
-						state: "failed",
+						state: rescued?.trim() ? "done" : "failed",
 						endedAt: Date.now(),
-						exitReason: "vanished while parent was away",
+						exitReason: rescued?.trim()
+							? "vanished while parent was away; result on disk"
+							: "vanished while parent was away",
 					}));
 					continue;
 				}
