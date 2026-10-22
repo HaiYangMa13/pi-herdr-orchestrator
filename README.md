@@ -72,9 +72,9 @@ tools: [read, grep, find, ls, bash, edit, write]
 You own only the explicitly assigned UI surface...
 ```
 
-- A user file wins over the packaged default of the same name; omitted `model` / `thinking` / `tools` / body fall back to the packaged version.
+- Roles come from `~/.pi/agent/agents/` and nowhere else. Omitting `model` / `thinking` / `tools` means inherit, so a role is never silently completed from a file you did not write.
 - `description` is the routing hint: `herd_status` prints the roster as `name (model) — first sentence`, and the model picks from it.
-- Packaged defaults: `scout`, `worker`, `reviewer`. Yours may add `implementer`, `generalist`, `researcher`, `frontend-designer`, or anything else.
+- Seeded on first run only: `scout`, `worker`, `reviewer` are copied into `~/.pi/agent/agents/` when that directory has no `.md` files. After that the packaged copies are never read, so deleting a role really deletes it.
 
 ## Task and result gates (local)
 

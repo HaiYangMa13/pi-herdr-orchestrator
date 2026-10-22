@@ -15,7 +15,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createHerdr } from "./src/herdr.ts";
-import { loadAgentSet, type AgentDef } from "./src/agents.ts";
+import { loadAgents, type AgentDef } from "./src/agents.ts";
 import {
 	agentPaths,
 	ensureDir,
@@ -163,14 +163,32 @@ export default function (pi: ExtensionAPI) {
 
 	async function defs(): Promise<AgentDef[]> {
 		// Re-read on every call so a new or edited role file applies without a reload.
-		agents = await loadAgentSet(USER_AGENT_DIR, AGENT_DIR);
+		await seedDefinitions();
+		// One directory, one source of truth: roles are never merged with the packaged files, so
+		// deleting a role here really deletes it instead of resurrecting a builtin of the same name.
+		agents = await loadAgents(USER_AGENT_DIR);
 		return agents;
 	}
 
-	async function definitionNames(): Promise<string[]> {
-		const { readdir } = await import("node:fs/promises");
-		return (await readdir(USER_AGENT_DIR).catch(() => [] as string[])).filter((f) => f.endsWith(".md")).sort();
+	/** First run only: copy the packaged defaults into the owner's directory, then never read them again. */
+	async function seedDefinitions(): Promise<void> {
+		if ((await definitionNames(USER_AGENT_DIR)).length) return;
+		const { mkdir, readFile: read, writeFile: write } = await import("node:fs/promises");
+		const seeds = await definitionNames(AGENT_DIR);
+		if (!seeds.length) return;
+		await mkdir(USER_AGENT_DIR, { recursive: true }).catch(() => undefined);
+		for (const name of seeds) {
+			const text = await read(join(AGENT_DIR, name), "utf8").catch(() => "");
+			if (text) await write(join(USER_AGENT_DIR, name), text).catch(() => undefined);
+		}
 	}
+
+	async function definitionNames(dir: string): Promise<string[]> {
+		const { readdir } = await import("node:fs/promises");
+		return (await readdir(dir).catch(() => [] as string[])).filter((f) => f.endsWith(".md")).sort();
+	}
+
+	const definitionSnapshot = () => definitionNames(USER_AGENT_DIR);
 
 	/**
 	 * Agent definitions are owner-only. The child-side guard blocks the write; this is the audit that
@@ -178,7 +196,7 @@ export default function (pi: ExtensionAPI) {
 	 * deleted, and pre-existing definitions are left untouched (a child cannot cost the owner a role).
 	 */
 	async function auditDefinitions(sessionId: string, label: string, before: string[]): Promise<string[]> {
-		const added = (await definitionNames()).filter((name) => !before.includes(name));
+		const added = (await definitionNames(USER_AGENT_DIR)).filter((name) => !before.includes(name));
 		if (!added.length) return [];
 		const { rename: move } = await import("node:fs/promises");
 		const quarantine = join(agentPaths(sessionId, label).dir, "tampered");
@@ -565,7 +583,7 @@ export default function (pi: ExtensionAPI) {
 				state: "starting",
 				keepAlive: params.keepAlive === true,
 				taskGate: { ok: spec.ok, missing: spec.missing },
-				defsSnapshot: await definitionNames(),
+				defsSnapshot: await definitionSnapshot(),
 			};
 			await writeMeta(sessionId, label, meta);
 			await logLine(sessionId, label, "pane", { paneId, tabId, placement, taskGate: meta.taskGate });

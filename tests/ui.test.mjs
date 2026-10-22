@@ -53,23 +53,19 @@ test('focus uses live session identity, rejects foreign workspace, handles gone 
  foreign=true;await assert.rejects(h.focusSession('child','parent'),/outside/);
  gone=true;assert.equal(await h.focusSession('child','parent'),false);
 });
-test('agent set merges user dir over packaged defaults without dropping fields',async()=>{
+test('roles load from one directory; packaged files are never merged in',async()=>{
  const {mkdtemp,writeFile,mkdir}=await import('node:fs/promises');
  const {tmpdir}=await import('node:os');const {join}=await import('node:path');
- const {loadAgentSet}=await j.import('../src/agents.ts');
+ const {loadAgents}=await j.import('../src/agents.ts');
  const root=await mkdtemp(join(tmpdir(),'herdr-agents-'));
  const user=join(root,'user'),builtin=join(root,'builtin');await mkdir(user);await mkdir(builtin);
- await writeFile(join(builtin,'scout.md'),'---\nname: scout\ndescription: builtin scout\nmodel: m/builtin\nthinking: high\ntools: [read, write]\n---\n\nbuiltin body\n');
- await writeFile(join(builtin,'only-builtin.md'),'---\nname: only-builtin\ndescription: packaged only\ntools: [read]\n---\nbody\n');
- await writeFile(join(user,'scout.md'),'---\nname: scout\nmodel: m/user\n---\nuser body\n');
+ await writeFile(join(builtin,'scout.md'),'---\nname: scout\ndescription: builtin scout\nmodel: m/builtin\n---\nbuiltin body\n');
  await writeFile(join(user,'custom.md'),'---\nname: custom\ndescription: user role\nmodel: m/user\ntools: [read, bash]\n---\ncustom body\n');
- const set=await loadAgentSet(user,builtin);const byName=Object.fromEntries(set.map(d=>[d.name,d]));
- assert.deepEqual(Object.keys(byName).sort(),['custom','only-builtin','scout']);
- assert.equal(byName.scout.model,'m/user');
- assert.equal(byName.scout.description,'builtin scout');
- assert.deepEqual(byName.scout.tools,['read','write']);
- assert.equal(byName.scout.body,'user body');
- assert.equal(byName.custom.model,'m/user');
+ const set=await loadAgents(user);
+ assert.deepEqual(set.map(d=>d.name),['custom']);
+ assert.equal(set[0].model,'m/user');
+ assert.deepEqual(set[0].tools,['read','bash']);
+ assert.deepEqual(await loadAgents(join(root,'missing')),[]);
 });
 test('shared tab grows into a grid instead of slivers',async()=>{
  const {chooseSplitDirection}=await j.import('../src/herdr.ts');

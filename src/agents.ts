@@ -67,31 +67,3 @@ export async function loadAgents(dir: string): Promise<AgentDef[]> {
 	defs.sort((a, b) => a.name.localeCompare(b.name));
 	return defs;
 }
-
-/**
- * Merge agent definitions: the user directory wins per name, falling back to the
- * packaged defaults for any field the user file leaves out. Later directories only
- * fill gaps, so a user file may override just the model or just the prompt.
- */
-export async function loadAgentSet(userDir: string, builtinDir: string): Promise<AgentDef[]> {
-	const [user, builtin] = await Promise.all([loadAgents(userDir), loadAgents(builtinDir)]);
-	const merged = new Map<string, AgentDef>();
-	for (const def of builtin) merged.set(def.name, def);
-	for (const def of user) {
-		const base = merged.get(def.name);
-		merged.set(
-			def.name,
-			base
-				? {
-						...def,
-						description: def.description || base.description,
-						model: def.model ?? base.model,
-						thinking: def.thinking ?? base.thinking,
-						tools: def.tools.length ? def.tools : base.tools,
-						body: def.body || base.body,
-					}
-				: def,
-		);
-	}
-	return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
-}

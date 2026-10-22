@@ -91,7 +91,8 @@ pi --model <provider/id:thinking> --thinking <level> --tools <csv> \
 
 ## 6. Agent 定义
 
-`/root/code/pi-herdr-orchestrator/agents/*.md`，最小 frontmatter：`name, model, thinking, tools(csv), description`，
+**唯一来源**：`~/.pi/agent/agents/*.md`（扩展内置 `agents/` 只在用户目录为空时一次性拷贝进去，之后不参与合并，
+因此删掉一个角色不会复活同名内置角色）。最小 frontmatter：`name, model, thinking, tools(csv), description`，
 body 即 system prompt 追加段。自带：`scout`（read/grep/find/ls）、`worker`（+bash/edit/write）、
 `reviewer`（只读）。**定义只有 owner 能写**：`child-ui.ts` 在 `tool_call` 拦截指向 `~/.pi/agent/agents/` 的写/edit 与相关 shell 重定向（fail-closed），父侧在子任务终结时按 `meta.defsSnapshot` 审计，新增文件移入 `<run>/<label>/tampered/` 并上报。
 
