@@ -35,7 +35,13 @@ export default function childUI(pi: ExtensionAPI) {
 	// Agent definitions are the owner's control surface: a definition pins the model, thinking level
 	// and tool set of every future child, so a child that can write one can grant itself anything.
 	// Blocked here (fail-closed) and audited again by the parent after the child ends.
-	const PROTECTED = [/(^|[\\/])\.pi[\\/]agent[\\/]agents([\\/]|$)/i, /[\\/]\.pi[\\/]agent[\\/]pi-herd/i];
+	const PROTECTED = [
+		// Definitions decide the model, tools and permissions of every future child.
+		/(^|[\\/])\.pi[\\/]agent[\\/]agents([\\/]|$)/i,
+		// Orchestration config only. The run tree below it stays writable: that is where the child
+		// writes result.md and ask.json, and a pattern matching the whole root blocked both.
+		/(^|[\\/])(pi-herd|pi-herdr)[\\/]config\.json$/i,
+	];
 	const SHELL_WRITE = /(>>?|\btee\b|\bcp\b|\bmv\b|\bsed\s+-i|\brm\b|\btruncate\b|\binstall\b)/;
 	const touchesProtected = (text: string) => PROTECTED.some((pattern) => pattern.test(text));
 	const WRITE_TOOLS = new Set(['write', 'edit', 'multiedit', 'apply_patch', 'patch', 'str_replace']);

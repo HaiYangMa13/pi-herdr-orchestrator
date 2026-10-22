@@ -33,7 +33,12 @@ test('child cannot write agent definitions or pi-herdr config',async()=>{
  assert.equal((await guard({toolName:'write',input:{path:'/root/.pi/agent/agents/evil.md'}}))?.block,true);
  assert.equal((await guard({toolName:'edit',input:{file_path:'C:\\Users\\u\\.pi\\agent\\agents/release.md'}}))?.block,true);
  assert.equal((await guard({toolName:'bash',input:{command:'echo x > ~/.pi/agent/agents/evil.md'}}))?.block,true);
+ assert.equal((await guard({toolName:'write',input:{path:'/root/.pi/agent/pi-herdr/config.json'}}))?.block,true);
  assert.equal((await guard({toolName:'read',input:{path:'/root/.pi/agent/agents/worker.md'}})),undefined);
+ // the run tree is the child's own workspace: its report must never be blocked
+ assert.equal((await guard({toolName:'write',input:{path:'/root/.pi/agent/pi-herdr/runs/s1/worker-1/result.md'}})),undefined);
+ assert.equal((await guard({toolName:'write',input:{path:'/root/.pi/agent/pi-herdr/runs/s1/worker-1/ask.json'}})),undefined);
+ assert.equal((await guard({toolName:'bash',input:{command:'cat > /root/.pi/agent/pi-herdr/runs/s1/w/result.md <<EOF\nhi\nEOF'}})),undefined);
  assert.equal((await guard({toolName:'write',input:{path:'/tmp/project/src/app.ts'}})),undefined);
  assert.equal((await guard({toolName:'bash',input:{command:'ls ~/.pi/agent/agents'}})),undefined);
 });
