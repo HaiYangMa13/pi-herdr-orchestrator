@@ -116,7 +116,9 @@ When a subagent misbehaves, read `meta.json` and `log.jsonl` before guessing.
 
 ## Notes and limits
 
-- `/reload` triggers `session_shutdown`, which closes that session's subagents even with `keepAlive: true`. Finish work first.
+- A subagent that ends its turn without writing `result.md` is asked once to dump the report ("rescue") and gets `rescueMs` (default 180000) to do it before the pane is closed. Set `rescueMs: 0` to disable.
+- A wait budget (`timeoutMs`, default `1800000` = 30 min) is the caller's, not a global rule: when it expires the run is classified `timeout`, rescued, then closed.
+- `/reload` keeps that session's subagents running and re-attaches to them on the way back (`keepChildrenOnReload`, default true). A real quit still closes them, even with `keepAlive: true`.
 - In `pi -p` (non-interactive) mode, `async: true` subagents are killed when the parent exits. Use `async: false` there.
 - A subagent that only replies `READY.` gets classified as `no_result` — write the report to `result.md`.
 

@@ -271,6 +271,48 @@ export default function (pi: ExtensionAPI) {
 
 	// -------------------------------------------------------------- watch/终端
 
+	const rescuePrompt = (resultPath: string) =>
+		[
+			"时间到或回合已结束，但结果文件还没写。",
+			"立刻停止一切作业：不要继续改代码、不要跑新测试、不要开新排查。",
+			`现在只做一件事：把你目前已完成的内容写成五节报告写入 ${resultPath}（完成内容 / 改动文件 / 验证程度 / 阻塞与风险 / 剩余工作）。没验证就写「未验证」。`,
+			"写完这个文件就结束回合。",
+		].join("\n");
+
+	/**
+	 * A child that ended its own turn, or blew its wait budget, without writing result.md has not
+	 * lost its work yet: its pane is still alive. Ask once for the report and give it a short grace
+	 * window before anything is closed, otherwise the entire run is discarded.
+	 */
+	async function rescueBeforeClose(
+		h: ReturnType<typeof createHerdr>,
+		label: string,
+		meta: Meta,
+		resultPath: string,
+	): Promise<string | undefined> {
+		const graceMs = Math.max(0, loadConfig().rescueMs ?? 180_000);
+		if (!graceMs) return undefined;
+		const startedAt = Date.now();
+		try {
+			await h.nudge(meta.herdrName, rescuePrompt(resultPath));
+			await logLine(sessionId, label, "rescue", { graceMs });
+		} catch (error: any) {
+			await logLine(sessionId, label, "rescue-failed", String(error?.message ?? error));
+			return undefined;
+		}
+		while (Date.now() - startedAt < graceMs) {
+			if (shuttingDown) return undefined;
+			await new Promise((resolve) => setTimeout(resolve, 5_000));
+			const text = await readText(resultPath);
+			if (text?.trim()) {
+				await logLine(sessionId, label, "rescued", { ms: Date.now() - startedAt });
+				return text;
+			}
+		}
+		await logLine(sessionId, label, "rescue-gave-up", { ms: Date.now() - startedAt });
+		return undefined;
+	}
+
 	async function watch(label: string, ctx: any, timeoutMs: number, notify: boolean): Promise<any> {
 		const paths = agentPaths(sessionId, label);
 		const meta = (await readJson(paths.meta)) as Meta | undefined;
@@ -303,13 +345,29 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		if (controller.signal.aborted || shuttingDown) throw new Error('watch cancelled');
-		const result = await readText(paths.result);
-		const ask = await readJson(paths.ask);
+		let result = await readText(paths.result);
+		let ask = await readJson(paths.ask);
 		let state: MetaState;
 		if (ask) state = "blocked";
 		else if (result?.trim()) state = "done";
 		else if (terminal.timedOut) state = "timeout";
 		else state = "no_result";
+
+		// Two ways a child can end without a report: it stopped its own turn (model/stream error,
+		// context saturation, or it simply stopped early) or its wait budget ran out. Both used to
+		// close the pane at once and throw the whole run away; ask for the report first.
+		let rescued = false;
+		if (!ask && !result?.trim() && !meta.keepAlive) {
+			const text = await rescueBeforeClose(h, label, meta, paths.result);
+			if (text?.trim()) {
+				result = text;
+				state = "done";
+				rescued = true;
+			} else {
+				ask = await readJson(paths.ask);
+				if (ask) state = "blocked";
+			}
+		}
 
 		const paneTail =
 			state === "no_result" || state === "timeout" ? await h.read(meta.herdrName, 80).catch(() => "") : undefined;
@@ -333,7 +391,7 @@ export default function (pi: ExtensionAPI) {
 			state,
 			endedAt: Date.now(),
 			closedAt: shouldClose ? Date.now() : current.closedAt,
-			exitReason: `${terminal.status}${closeInfo}`,
+			exitReason: `${terminal.status}${rescued ? ";rescued" : ""}${closeInfo}`,
 		}));
 		await logLine(sessionId, label, `terminal:${state}`, {
 			herdrStatus: terminal.status,
@@ -412,7 +470,7 @@ export default function (pi: ExtensionAPI) {
 			const label =
 				existing && !TERMINAL_STATES.includes(existing.state) ? `${base}-${rand8()}` : base;
 			const paths = agentPaths(sessionId, label);
-			const herdrName = `${label}_${rand8()}`;
+					const herdrName = `${label.slice(0, 23)}_${rand8()}`;
 			const cwd = params.cwd ?? ctx.cwd;
 			await ensureDir(paths.dir);
 			await writeTask(sessionId, label, params.task, params.files ?? []);
@@ -683,12 +741,27 @@ export default function (pi: ExtensionAPI) {
 		startFleetTimer(ctx);
 	});
 
-	pi.on("session_shutdown", async (_event, ctx) => {
+	pi.on("session_shutdown", async (event, ctx) => {
 		shuttingDown = true;
 		stopFleetTimer();
 		for (const controller of watchers.values()) controller.abort();
 		watchers.clear();
 		unmountWidget(ctx);
+		// `/reload` tears this extension down but brings it straight back with the same session id,
+		// and session_start re-attaches to live children. Killing them here threw away whole runs
+		// whenever the parent reloaded mid-flight. Only a real quit ends the children.
+		const reason = (event as any)?.reason as string | undefined;
+		const keepChildren = (loadConfig().keepChildrenOnReload ?? true) && reason === "reload";
+		if (keepChildren) {
+			try {
+				for (const label of await listLabels(sessionId)) {
+					await logLine(sessionId, label, "shutdown", { reason, kept: true });
+				}
+			} catch {
+				/* shutdown must never throw */
+			}
+			return;
+		}
 		try {
 			const { h } = bind(ctx);
 			for (const label of await listLabels(sessionId)) {

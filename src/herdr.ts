@@ -226,6 +226,11 @@ export function createHerdr(exec: ExecFn) {
 			await call(["agent", "prompt", name, text, "--wait", "--until", "working", "--timeout", String(timeoutMs)], timeoutMs);
 		},
 
+		/** Queue text without waiting for a status change (steer / rescue prompts). */
+		async nudge(name: string, text: string, timeoutMs = 45_000): Promise<void> {
+			await call(["agent", "prompt", name, text], timeoutMs);
+		},
+
 		async waitTerminal(name: string, timeoutMs: number, signal?: AbortSignal): Promise<Terminal> {
 			try {
 				const { json } = await call(
