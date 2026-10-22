@@ -1,6 +1,6 @@
 {
   "name": "pi-herdr-orchestrator",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "herdr-backed subagent orchestrator for the Pi coding agent: real panes, per-agent result contracts, and local deterministic task/result gates",
   "type": "module",
   "license": "MIT",
@@ -44,7 +44,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test tests/ui.test.mjs && node --experimental-strip-types --test tests/fleet-policy.test.ts",
+    "test": "node --test tests/ui.test.mjs && node --experimental-strip-types --test tests/fleet-policy.test.ts tests/guidance.test.ts",
     "test:herdr": "node tests/herdr-ui-acceptance.mjs",
     "prepack": "npm test"
   },

@@ -22,7 +22,7 @@ pi install npm:pi-herdr-orchestrator
 Prerequisites:
 
 1. [herdr](https://herdr.dev) running, with its Pi integration installed: `herdr integration install pi`.
-2. Pi ≥ 0.60.
+2. Pi with `before_agent_start.systemPromptOptions` support (verified on Pi 1.4.0).
 
 Local development:
 
@@ -30,6 +30,20 @@ Local development:
 git clone <this repo> ~/code/pi-herdr-orchestrator
 ln -s ~/code/pi-herdr-orchestrator ~/.pi/agent/extensions/pi-herdr-orchestrator
 ```
+
+## Agent guidance is part of the plugin
+
+The extension owns its orchestration instructions in `src/guidance.ts`. At
+`before_agent_start` it adds the `herd_orchestration` system-prompt section only
+when `herd_spawn` is selected and not hidden. If the tool is unavailable, the
+extension removes its own section without touching other prompt sections.
+Subagents do not load the orchestrator and receive no parent guidance.
+
+No copy/paste into `AGENTS.md` is required. Keep host-specific safety policies
+there, not plugin tools, defaults, or implementation details. When migrating an
+existing setup, first activate the updated plugin, then remove the old
+orchestration section from the global `AGENTS.md`. Source edits alone do not
+update an installed npm package; do not remove the old guidance before deploying.
 
 ## One entry point: `/herdr`
 
@@ -135,7 +149,8 @@ herdr integration install pi
 - `/herdr`：底栏选单，只列活跃/保留子任务，历史进 `📁 Archive`；可跳 pane、返回主窗口、确认后全部关闭。
 - 子 agent 结果写 `result.md`，父会话读到终态后自动唤醒；`blocked` 保活，用 `herd_reply` 回答后继续。
 - 角色定义放 `~/.pi/agent/agents/*.md`，每次派活重读，无需 reload。
-- `/reload` 会关闭本会话的子 agent；`pi -p` 场景用 `async: false`。
+- 编排指引由插件自动注入，无需复制到全局 `AGENTS.md`；主机安全限制仍保留在该文件中。
+- `/reload` 默认保留并重新接管本会话子 agent；真正退出仍会关闭它们。`pi -p` 场景用 `async: false`。
 
 ## License
 

@@ -38,6 +38,7 @@ import { existsSync } from "node:fs";
 import { FleetView, type Row } from "./src/fleet-view.ts";
 import { openNavigator } from "./src/navigation.ts";
 import { showFleetRow, fleetRank } from "./src/fleet-policy.ts";
+import { GUIDANCE_SECTION, herdGuidance } from "./src/guidance.ts";
 
 const AGENT_DIR = fileURLToPath(new URL("./agents/", import.meta.url));
 
@@ -801,6 +802,17 @@ export default function (pi: ExtensionAPI) {
 			try { await openNavigator(ctx,bind(ctx).h,sessionId,()=>closeAll(ctx)); }
 			catch (error: any) { ctx.ui.notify(String(error?.message ?? error),'error'); }
 		},
+	});
+
+	// ---------------------------------------------------------- agent guidance
+	// The orchestration contract is versioned with this extension and pushed into the running
+	// prompt. It used to live in a user-level AGENTS.md, which cannot follow the installed build.
+	// A session without the tools gets nothing: the section is only added when they are live.
+	pi.on("before_agent_start", (event) => {
+		// Mutating the section is enough; Pi renders the prompt from these options after handlers.
+		const guidance = herdGuidance(event.systemPromptOptions);
+		if (guidance) event.systemPromptOptions.sections[GUIDANCE_SECTION] = guidance;
+		else delete event.systemPromptOptions.sections[GUIDANCE_SECTION];
 	});
 
 	// ---------------------------------------------------------------- lifecycle
